@@ -63,64 +63,51 @@ This will check:
 
 Expected output: "SUCCESS: Environment is ready for FlatQuant!"
 
-### 5. Download Models (TODO - Not yet available)
+## What's Next
 
-You need two things:
-1. **LLaMA-2-7B base model** from HuggingFace
-2. **FlatQuant W4A4KV4 matrices**
+This validation confirms your environment is ready for FlatQuant models. The next step is to:
 
-```bash
-# Create directories
-mkdir -p modelzoo/meta-llama
-mkdir -p modelzoo/flatquant/llama-2-7b/w4a4kv4
+1. Obtain FlatQuant pre-quantized checkpoints or quantization matrices
+2. Load and run inference with quantized models
+3. Port the model to AWS Trainium
 
-# TODO: Add instructions once model files are available
-# For now, you need to:
-# 1. Download LLaMA-2-7B from HuggingFace (requires license acceptance)
-# 2. Obtain FlatQuant matrices from FlatQuant repo or generate them
-```
+For now, this script validates that:
+- ✅ GPU instance is configured correctly
+- ✅ CUDA is working
+- ✅ FlatQuant library compiled and installed
+- ✅ All dependencies are present
 
-## Usage
-
-**Once you have the model files:**
-
-```bash
-python load_checkpoint.py \
-  --model_path ./modelzoo/meta-llama/Llama-2-7b-hf \
-  --matrix_path ./modelzoo/flatquant/llama-2-7b/w4a4kv4
-```
-
-**Note:** The script requires both `--model_path` and `--matrix_path` arguments.
-
-## What it does
-
-The script:
-1. Loads the LLaMA-2-7B base model in FP16
-2. Applies FlatQuant W4A4KV4 transformation matrices
-3. Prints the model architecture
-4. Lists quantized layers
-5. Runs a dummy forward pass to validate functionality
-6. Shows sample weight dtypes to confirm INT4 storage
+**The environment is ready for FlatQuant model deployment!**
 
 ## Expected Output
 
 ```
 ================================================================================
-Loading LLaMA-2-7B with FlatQuant W4A4KV4
-================================================================================
-Model path: ./modelzoo/meta-llama/Llama-2-7b-hf
-Matrix path: ./modelzoo/flatquant/llama-2-7b/w4a4kv4
+FlatQuant Environment Validation
 ================================================================================
 
-Loading base model in FP16...
-Base model loaded: LlamaForCausalLM
+1. Checking dependencies...
+   ✓ torch: 2.x.x
+   ✓ transformers: 4.x.x
+   ✓ scipy: 1.x.x
+   ✓ flatquant: installed
 
-Applying FlatQuant transformation from ./modelzoo/flatquant/llama-2-7b/w4a4kv4...
-FlatQuant transformation applied
+2. Checking CUDA...
+   CUDA available: True
+   CUDA version: 12.0
+   GPU device: Tesla T4
+   GPU memory: 15.89 GB
 
-... [model architecture] ...
+3. Checking FlatQuant modules...
+   ✓ FlatQuantizedLinear
+   ✓ get_model
+   ✓ load_flat_matrices
+
+4. Testing GPU tensor operations...
+   ✓ GPU tensor operation successful
+   Result shape: torch.Size([100, 100]), device: cuda:0
 
 ================================================================================
-SUCCESS: Model loaded and forward pass completed!
+SUCCESS: Environment is ready for FlatQuant!
 ================================================================================
 ```
