@@ -1,0 +1,3 @@
+git+https://github.com/ruikangliu/FlatQuant.git
+torch
+transformers
