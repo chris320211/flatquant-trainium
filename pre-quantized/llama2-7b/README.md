@@ -52,7 +52,7 @@ pip install git+https://github.com/ruikangliu/FlatQuant.git
 First, test that everything is installed correctly:
 
 ```bash
-python load_checkpoint_simple.py
+python verify_environment.py
 ```
 
 This will check:
@@ -63,21 +63,33 @@ This will check:
 
 Expected output: "SUCCESS: Environment is ready for FlatQuant!"
 
+### 5. Load Pre-Quantized Model
+
+Now load the FlatQuant pre-quantized LLaMA-2-7B model from HuggingFace:
+
+```bash
+python load_prequantized_model.py
+```
+
+This script:
+- Downloads the W4A4KV4 quantized LLaMA-2-7B model (if not cached)
+- Loads the model with FlatQuant kernels
+- Runs a test inference to validate everything works
+- Shows model info and generation output
+
+**Note:** First run compiles FlatQuant CUDA kernels (takes ~30 seconds), subsequent runs are fast.
+
 ## What's Next
 
-This validation confirms your environment is ready for FlatQuant models. The next step is to:
+Once the pre-quantized model runs successfully:
 
-1. Obtain FlatQuant pre-quantized checkpoints or quantization matrices
-2. Load and run inference with quantized models
-3. Port the model to AWS Trainium
+1. ✅ GPU instance configured
+2. ✅ CUDA working
+3. ✅ FlatQuant installed
+4. ✅ Pre-quantized model loaded and tested
+5. **Next:** Port the model to AWS Trainium
 
-For now, this script validates that:
-- ✅ GPU instance is configured correctly
-- ✅ CUDA is working
-- ✅ FlatQuant library compiled and installed
-- ✅ All dependencies are present
-
-**The environment is ready for FlatQuant model deployment!**
+**The FlatQuant model is now ready for Trainium translation!**
 
 ## Expected Output
 
