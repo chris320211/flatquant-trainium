@@ -12,9 +12,13 @@ Simple script to load and validate FlatQuant W4A4KV4 quantized LLaMA-2-7B model.
 
 ### 1. Launch EC2 Instance
 
+**IMPORTANT:** Use GPU AMI, NOT Neuron AMI!
+
 1. Search for AMI: `Deep Learning AMI GPU PyTorch`
-2. Select: "Deep Learning AMI GPU PyTorch 2.0.1 Ubuntu 20.04" (or latest)
-3. Instance type: `g4dn.xlarge` (~$0.50/hour)
+2. Select: **"Deep Learning OSS Nvidia Driver AMI GPU PyTorch"** (Ubuntu 22.04)
+   - ❌ DO NOT select "Deep Learning AMI Neuron" (for Trainium/Inferentia, not NVIDIA GPUs)
+   - ✅ Must say "GPU" or "Nvidia Driver" in the name
+3. Instance type: `g5.2xlarge` (~$1.20/hour, recommended) or `g4dn.xlarge` (~$0.50/hour, slower)
 4. Storage: 100 GB
 5. Create/select SSH key pair
 6. Launch instance
@@ -29,23 +33,38 @@ ssh -i ~/.ssh/your-key.pem ubuntu@ec2-XX-XX-XX-XX.compute-1.amazonaws.com
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR-USERNAME/flatquant-trainium.git
-cd flatquant-trainium/pre-quantized/llama2-7b
+git clone https://github.com/chris320211/flatquant-trainium.git
+cd flatquant-trainium
 
-# Upgrade CMake (required for FlatQuant)
-pip install --upgrade cmake
+# Create virtual environment (for Ubuntu 24.04 compatibility)
+python3 -m venv venv
+source venv/bin/activate
 
-# Install dependencies in order (torch first, then FlatQuant)
-pip install torch transformers scipy
-pip install git+https://github.com/ruikangliu/FlatQuant.git
-# Note: FlatQuant compilation takes 10-20 minutes - this is normal!
+# Install core dependencies
+pip install --upgrade pip wheel cmake
+pip install torch transformers==4.45.0 scipy
+
+# Clone and install FlatQuant (takes 10-20 minutes)
+git clone https://github.com/ruikangliu/FlatQuant.git
+cd FlatQuant
+pip install -e . --no-build-isolation
+
+# Install additional required dependencies
+pip install fast-hadamard-transform
+
+# Set PYTHONPATH so model can find FlatQuant modules
+export PYTHONPATH="${PYTHONPATH}:${HOME}/flatquant-trainium/FlatQuant"
 ```
 
 **Important:**
-- Install torch BEFORE FlatQuant
-- Upgrade CMake first to avoid build errors
-- FlatQuant compilation takes 10-20 minutes (compiling CUDA kernels)
-- Install scipy to avoid import errors
+- Always activate venv: `source ~/flatquant-trainium/venv/bin/activate`
+- FlatQuant compilation takes 10-20 minutes (compiling CUDA kernels) - this is normal!
+- Must use `transformers==4.45.0` (newer versions have compatibility issues)
+- Must set PYTHONPATH or model loading will fail
+- To make PYTHONPATH permanent, add to `~/.bashrc`:
+  ```bash
+  echo 'export PYTHONPATH="${PYTHONPATH}:${HOME}/flatquant-trainium/FlatQuant"' >> ~/.bashrc
+  ```
 
 ### 4. Verify Installation
 

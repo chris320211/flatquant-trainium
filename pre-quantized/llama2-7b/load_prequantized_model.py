@@ -20,7 +20,8 @@ model = AutoModelForCausalLM.from_pretrained(
     model_id,
     trust_remote_code=True,
     torch_dtype=torch.float16,
-    device_map="cuda:0"
+    device_map="cuda:0",
+    attn_implementation="eager"  # Disable flash attention
 )
 
 print("   ✓ Model loaded successfully!")
