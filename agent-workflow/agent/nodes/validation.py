@@ -60,7 +60,7 @@ def validation_node(state: AgentState) -> dict[str, Any]:
     if out_dir and str(out_dir) not in sys.path:
         sys.path.insert(0, str(out_dir))
     # Also add FlatQuant root so deploy.* imports resolve.
-    flatquant_root = str(REPO_ROOT / "FlatQuant")
+    flatquant_root = str(REPO_ROOT / "FlatQuantBundled")
     if flatquant_root not in sys.path:
         sys.path.insert(0, flatquant_root)
 

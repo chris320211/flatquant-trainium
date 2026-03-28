@@ -17,7 +17,7 @@ from transformers import AutoConfig, AutoModelForCausalLM
 
 # Absolute path to the FlatQuant reference codebase (local clone).
 REPO_ROOT = Path(__file__).resolve().parents[2]
-FLATQUANT_ROOT = REPO_ROOT / "FlatQuant"
+FLATQUANT_ROOT = REPO_ROOT / "FlatQuantBundled"
 
 # Reference files always passed to ref_reader.
 FLATQUANT_REFERENCE_FILES = {

@@ -53,7 +53,7 @@ pip install -e . --no-build-isolation
 pip install fast-hadamard-transform
 
 # Set PYTHONPATH so model can find FlatQuant modules
-export PYTHONPATH="${PYTHONPATH}:${HOME}/flatquant-trainium/FlatQuant"
+export PYTHONPATH="${PYTHONPATH}:${HOME}/flatquant-trainium/FlatQuantBundled"
 ```
 
 **Important:**
@@ -63,7 +63,7 @@ export PYTHONPATH="${PYTHONPATH}:${HOME}/flatquant-trainium/FlatQuant"
 - Must set PYTHONPATH or model loading will fail
 - To make PYTHONPATH permanent, add to `~/.bashrc`:
   ```bash
-  echo 'export PYTHONPATH="${PYTHONPATH}:${HOME}/flatquant-trainium/FlatQuant"' >> ~/.bashrc
+  echo 'export PYTHONPATH="${PYTHONPATH}:${HOME}/flatquant-trainium/FlatQuantBundled"' >> ~/.bashrc
   ```
 
 ### 4. Verify Installation

@@ -24,7 +24,7 @@ flatquant-trainium/
       nodes/                      one module per pipeline step
   pre-quantized/                  reference for pre-quantized checkpoint loading
     llama2-7b/
-  FlatQuant/                      FlatQuant library (adapted for Trainium)
+  FlatQuantBundled/               FlatQuant library (adapted for Trainium; vendored copy)
     setup.py                      optional CUDA build; Hadamard transform install
     requirements.txt
     main.py                       FlatQuant training entry point
@@ -81,7 +81,7 @@ Generated files appear under `agent-workflow/outputs/<slug>/`:
 Tests run without CUDA or a Trainium instance.
 
 ```bash
-cd FlatQuant
+cd FlatQuantBundled
 pip install torch  # >= 2.1 for FP8
 python -m unittest discover -s tests -v -p "test_mac*.py"
 ```
@@ -90,22 +90,39 @@ Six tests cover FP8 dequant, scale alignment, `sym_quant` (PyTorch fallback), `L
 
 ## Trainium2 deployment
 
-### Prerequisites
+Goal: run the adapted FlatQuant stack (FP8 PyTorch kernels + `Linear4bit`) on Neuron / XLA, then compile and serve the full model with NeuronX Distributed Inference (NxDI) when you are ready.
 
-On a Trainium2 instance (e.g. `trn2.48xlarge`):
+### 1. Environment (on the instance)
+
+On a Trainium2 instance (e.g. `trn2.48xlarge`), use the preinstalled Neuron PyTorch venv (path may vary slightly by AMI):
 
 ```bash
 source /opt/aws_neuronx_venv_pytorch_2_9_nxd_inference/bin/activate
-pip install -e FlatQuant/third-party/fast-hadamard-transform
-pip install -e FlatQuant    # builds no CUDA extension on Trainium
+cd flatquant-trainium/FlatQuantBundled
+pip install -e third-party/fast-hadamard-transform
+pip install -e .    # no CUDA extension on Trainium; PyTorch path only
 ```
 
-### Running inference
+### 2. Smoke test on Neuron / XLA
 
-The Neuron compile / inference path follows NeuronX Distributed Inference (NxDI). The generated `modeling_<slug>.py` from the agent workflow is the starting point. Compile, then serve:
+This exercises `Linear4bit` FP8 and `kron_matmul_pytorch` on the XLA device (default). Omit `--cpu` on the instance:
+
+```bash
+python scripts/trainium_smoke.py
+```
+
+For a quick local check without Neuron:
+
+```bash
+python scripts/trainium_smoke.py --cpu
+```
+
+### 3. Full model inference (NxDI)
+
+The Neuron compile / inference path follows **NeuronX Distributed Inference**. The agent workflow’s generated `modeling_<slug>.py` under `agent-workflow/outputs/<slug>/` is the starting point: wire it into NxDI’s `NeuronConfig` / parallel layers, then compile and serve (see the Neuron SDK documentation for `neuronx_distributed_inference`). Sketch:
 
 ```python
-# Example (see generated modeling_<slug>.py for full implementation)
+# Example — see generated modeling_<slug>.py for your model
 import torch_neuronx
 from modeling_myllama import FlatQuantMyLlamaForCausalLM
 
@@ -121,10 +138,10 @@ Trainium2 (NeuronCore-v2) supports `cFP8` natively. PyTorch `torch.float8_e4m3fn
 
 | File | Change |
 |---|---|
-| `FlatQuant/deploy/__init__.py` | Lazy `deploy._CUDA` import; PyTorch `sym_quant` fallback |
-| `FlatQuant/deploy/nn/linear.py` | `Linear4bit` FP8 and INT4 PyTorch paths (no CUDA required) |
-| `FlatQuant/deploy/nn/fp8_utils.py` | FP8 dequant, INT4 weight unpack, scale alignment |
-| `FlatQuant/deploy/functional/online_trans.py` | Lazy `fast_hadamard_transform` import; uses PyTorch kernels |
-| `FlatQuant/deploy/kernels/pytorch/kron_matmul_pytorch.py` | FP8 `a @ b @ c` kernel |
-| `FlatQuant/deploy/kernels/pytorch/block_matmul_pytorch.py` | FP8 `b @ c` kernel |
-| `FlatQuant/deploy/functional/quantization.py` | Fixed `torch.tensor` warning in `get_minq_maxq` |
+| `FlatQuantBundled/deploy/__init__.py` | Lazy `deploy._CUDA` import; PyTorch `sym_quant` fallback |
+| `FlatQuantBundled/deploy/nn/linear.py` | `Linear4bit` FP8 and INT4 PyTorch paths (no CUDA required) |
+| `FlatQuantBundled/deploy/nn/fp8_utils.py` | FP8 dequant, INT4 weight unpack, scale alignment |
+| `FlatQuantBundled/deploy/functional/online_trans.py` | Lazy `fast_hadamard_transform` import; uses PyTorch kernels |
+| `FlatQuantBundled/deploy/kernels/pytorch/kron_matmul_pytorch.py` | FP8 `a @ b @ c` kernel |
+| `FlatQuantBundled/deploy/kernels/pytorch/block_matmul_pytorch.py` | FP8 `b @ c` kernel |
+| `FlatQuantBundled/deploy/functional/quantization.py` | Fixed `torch.tensor` warning in `get_minq_maxq` |
