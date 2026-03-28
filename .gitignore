@@ -1,2 +1,40 @@
+# Secrets / local config
 *.pem
 misc.txt
+.env
+
+# CMake build artifacts
+build/
+build-test/
+CMakeCache.txt
+CMakeFiles/
+*.cmake
+cmake_install.cmake
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+.eggs/
+*.so
+*.dylib
+
+# Agent outputs
+agent-workflow/outputs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
