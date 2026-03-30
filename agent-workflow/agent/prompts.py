@@ -54,6 +54,10 @@ Generate the following files as a JSON object {filename: source_code}:
    - `apply_flatquant_to_{slug}(args, model)` that walks model.model.layers
      (or equivalent) and replaces MLP/Attention modules with FlatQuant wrappers
    Mirror the structure of llama_utils.py exactly.
+   - In attention `add_fq_trans`, for o-proj single-matrix transforms use
+     **`self.config.num_attention_heads`** (see `llama_utils.py`: `SingleTransMatrix(self.config.num_attention_heads)`).
+     **Do not** use `self.num_heads` — modern `transformers` `LlamaAttention` may not define it before `add_fq_trans`,
+     causing `AttributeError` during calibration.
 
 2. `calibrate_{slug}.py` — Calibration entry script:
    - Adapted from FlatQuant/main.py (see canonical_flatquant_main_snippet in the user message)

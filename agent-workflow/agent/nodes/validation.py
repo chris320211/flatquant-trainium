@@ -45,6 +45,22 @@ def _calibrate_forbidden_import_message(filename: str, source: str) -> str | Non
     return None
 
 
+def _utils_attention_num_heads_message(filename: str, source: str) -> str | None:
+    """Llama-style FlatQuant attention must use config.num_attention_heads in add_fq_trans."""
+    if not (filename.endswith("_utils.py") and "add_fq_trans" in source):
+        return None
+    if re.search(
+        r"(SingleTransMatrix|SVDSingleTransMatrix|InvSingleTransMatrix)\s*\(\s*self\.num_heads\s*\)",
+        source,
+    ):
+        return (
+            "Static check: in add_fq_trans use self.config.num_attention_heads for "
+            "SingleTransMatrix/SVDSingleTransMatrix (not self.num_heads). "
+            "See FlatQuantBundled/flatquant/model_tools/llama_utils.py."
+        )
+    return None
+
+
 def _deploy_quantization_public_names() -> set[str]:
     """Top-level public class/function names in FlatQuantBundled deploy/nn/quantization.py."""
     path = REPO_ROOT / "FlatQuantBundled" / "deploy" / "nn" / "quantization.py"
@@ -167,6 +183,11 @@ def validation_node(state: AgentState) -> dict[str, Any]:
         bad_cali = _calibrate_forbidden_import_message(filename, source_code)
         if bad_cali:
             import_errors[filename] = bad_cali
+            continue
+
+        bad_heads = _utils_attention_num_heads_message(filename, source_code)
+        if bad_heads:
+            import_errors[filename] = bad_heads
             continue
 
         bad_quant = _quant_config_get_quantization_args_message(filename, source_code)

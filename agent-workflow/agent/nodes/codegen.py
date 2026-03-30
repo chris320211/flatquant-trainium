@@ -23,6 +23,9 @@ _MAIN_SNIPPET_END_LINE = 40  # imports + main() through cali_flat_quant call
 _DEPLOY_NN_INIT = _REPO_ROOT / "FlatQuantBundled" / "deploy" / "nn" / "__init__.py"
 _DEPLOY_NN_QUANTIZATION = _REPO_ROOT / "FlatQuantBundled" / "deploy" / "nn" / "quantization.py"
 _QUANTIZATION_SNIPPET_MAX_LINES = 70
+_LLAMA_UTILS = _REPO_ROOT / "FlatQuantBundled" / "flatquant" / "model_tools" / "llama_utils.py"
+_LLAMA_UTILS_ATTENTION_START = 111  # 1-based: class FlatQuantLlamaAttention through add_fq_trans
+_LLAMA_UTILS_ATTENTION_END = 160
 
 
 def _canonical_flatquant_main_snippet() -> str:
@@ -52,6 +55,17 @@ def _canonical_deploy_quantization_snippet() -> str:
             text = "\n".join(lines[:_QUANTIZATION_SNIPPET_MAX_LINES])
         parts.append(f"=== {label} ===\n{text.rstrip()}")
     return "\n\n".join(parts)
+
+
+def _canonical_llama_utils_attention_snippet() -> str:
+    """FlatQuantLlamaAttention.__init__ + add_fq_trans — use config.num_attention_heads for o_trans."""
+    try:
+        lines = _LLAMA_UTILS.read_text().splitlines()
+    except OSError:
+        return f"(missing or unreadable: {_LLAMA_UTILS})"
+    i0 = max(0, _LLAMA_UTILS_ATTENTION_START - 1)
+    i1 = min(len(lines), _LLAMA_UTILS_ATTENTION_END)
+    return "\n".join(lines[i0:i1])
 
 
 def _model_slug(model_name: str) -> str:
@@ -85,6 +99,7 @@ def codegen_node(state: AgentState) -> dict[str, Any]:
     forward_hints = _hint_forward_signatures(model_type, modeling_source)
     main_snippet = _canonical_flatquant_main_snippet()
     deploy_quant_snippet = _canonical_deploy_quantization_snippet()
+    llama_attn_snippet = _canonical_llama_utils_attention_snippet()
 
     user_message = (
         f"model_name: {model_name}\n"
@@ -98,6 +113,9 @@ def codegen_node(state: AgentState) -> dict[str, Any]:
         f"`Quantizer` / `deploy.nn.Quantizer` only; do not import quantize_activation or other "
         f"invented names from deploy.nn.quantization in modeling_{slug}.py):\n"
         f"```python\n{deploy_quant_snippet}\n```\n\n"
+        f"canonical_llama_utils_attention_snippet (FlatQuantLlamaAttention + add_fq_trans — "
+        f"copy SingleTransMatrix(self.config.num_attention_heads) pattern for Llama; never self.num_heads):\n"
+        f"```python\n{llama_attn_snippet}\n```\n\n"
         f"installed_forward_signatures (from the installed HuggingFace modeling file — "
         f"subclass forward() must include these parameter names + **kwargs):\n"
         f"{json.dumps(forward_hints, indent=2)}\n\n"
