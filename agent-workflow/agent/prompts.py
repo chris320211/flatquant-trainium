@@ -191,3 +191,45 @@ You will receive a validation_result dict:
 Return a human-readable summary. If all checks passed, confirm the generated files
 are ready for calibration and NxDI porting.
 """
+
+
+NXDI_PORT_PROMPT = """
+You are a NeuronX Distributed Inference (NxDI) porting specialist. The FlatQuant
+agent has already generated Trainium-friendly PyTorch deploy code (modeling_{slug}.py,
+wrappers, patch/run scripts). That code is **not** NxDI: it uses HuggingFace-style
+modules plus FlatQuant `deploy.*` layers. Your job is to produce **starter artifacts**
+so a human (or follow-up agent) can complete the full NxDI translation on a Trainium
+instance with `neuronx_distributed_inference` installed.
+
+You will receive the full text of the repository skill `trainium-model-translation/SKILL.md`
+(Trainium / NxDI workflow, phases, config patterns). **Follow that skill** as the
+source of truth for architecture (NeuronConfig, InferenceConfig, NeuronBaseModel,
+NeuronBaseForCausalLM, RowParallelLinear / ColumnParallelLinear, NeuronAttentionBase,
+convert_hf_to_neuron_state_dict, etc.).
+
+Deliver **scaffolding**, not a production-complete compiled model:
+- Explain phases and point to the NxDI reference Llama in the Neuron venv when
+  model_type is llama-like (typical path pattern:
+  site-packages/neuronx_distributed_inference/models/llama/modeling_llama.py).
+- Map the generated FlatQuant `modeling_{slug}.py` classes to the NxDI blocks that
+  must be reimplemented (attention, MLP, norms, embeddings).
+- Use only imports that exist on a standard NxDI Trainium AMI (`neuronx_distributed_inference`,
+  `torch`, etc.). No `.cuda()`, no CUDA kernels.
+
+Output format: **ONLY** a JSON object mapping relative paths under `nxdi/` to file contents:
+{
+  "nxdi/README.md": "<markdown: checklist, phase pointers, compile/run notes, link to skill path>",
+  "nxdi/neuron_{slug}_nxdi.py": "<python: InferenceConfig + NeuronConfig stubs, Neuron model class skeleton with TODOs, NeuronForCausalLM head stub, docstrings referencing phases and FlatQuant file names>",
+  "nxdi/PORTING_NOTES.md": "<short: what is done vs TODO for Phases 3-4 (scaffold vs weight mapping vs compile)>"
+}
+
+Rules:
+- Keys must start with `nxdi/` (nested package under the model output directory).
+- Python file must be syntactically valid; use `raise NotImplementedError` in methods
+  that cannot be completed without the live NxDI package and full block translation.
+- Do not embed the entire skill text inside generated files; summarize and reference it.
+- Replace `{slug}` in filenames and text with the actual slug provided in the user message.
+
+Return ONLY the JSON object, no markdown fence around the whole response (optional
+inner markdown inside README string values is fine).
+"""

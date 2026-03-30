@@ -1,6 +1,10 @@
 """
 FlatQuant Porting Agent — entry point.
 
+Pipeline: arch → ref_reader → codegen → registration → validation; if validation
+passes, nxdi_port generates `nxdi/*` scaffolding under outputs/<model>/ using
+`.claude/skills/trainium-model-translation/SKILL.md` as the NxDI workflow reference.
+
 Usage:
     python main.py mistralai/Mistral-7B-v0.1
     python main.py  # prompts interactively
@@ -66,9 +70,23 @@ def main() -> None:
         for cls, err in result["signature_errors"].items():
             print(f"  {cls}: {err}")
 
-    print("\n=== Files Written ===")
+    print("\n=== Files Written (validation) ===")
     for fname, fpath in result.get("written_files", {}).items():
         print(f"  {fname} → {fpath}")
+
+    vr_passed = (final_state.get("validation_result") or {}).get("passed")
+    nxdi = final_state.get("nxdi_result") or {}
+    print("\n=== NxDI porting ===")
+    if not vr_passed:
+        print("  Not run (validation did not pass).")
+    elif nxdi.get("skipped"):
+        print(f"  Skipped: {nxdi.get('reason', 'unknown')}")
+    elif nxdi.get("written_files"):
+        print("  Scaffolding written under outputs/.../nxdi/:")
+        for fname, fpath in nxdi["written_files"].items():
+            print(f"  {fname} → {fpath}")
+    else:
+        print("  (no nxdi artifacts recorded)")
 
     # Print the LLM validation summary from the message log.
     messages = final_state.get("messages", [])

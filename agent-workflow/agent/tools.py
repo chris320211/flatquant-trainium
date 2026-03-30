@@ -129,6 +129,7 @@ def write_output_files(model_name: str, files: dict) -> dict:
     written = {}
     for filename, content in files.items():
         dest = out_dir / filename
+        dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content)
         written[filename] = str(dest)
 

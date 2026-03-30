@@ -25,5 +25,8 @@ class AgentState(TypedDict, total=False):
     # validation_agent populates
     validation_result: dict     # {passed: bool, errors: list[str]}
 
+    # nxdi_port node (after validation if passed)
+    nxdi_result: dict           # {skipped, reason?, written_files?, filenames?}
+
     # Shared conversation/debug log
     messages: list
