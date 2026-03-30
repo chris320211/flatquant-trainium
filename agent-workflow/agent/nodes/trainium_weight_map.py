@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from llm import anthropic_text, get_codegen_llm
 from prompts import TRAINIUM_WEIGHT_PROMPT
-from skill_loader import excerpt_weight_mapping, load_skill_markdown
+from skill_loader import full_reference_weight_mapping, load_skill_markdown
 from state import AgentState
 from tools import write_output_files
 
@@ -37,7 +37,8 @@ def trainium_weight_map_node(state: AgentState) -> dict[str, Any]:
         f"slug: {slug}\n\n"
         f"--- Phase 1 plan (truncated) ---\n{json.dumps(plan, indent=2)[:8000]}\n\n"
         f"--- {neuron_key} (prefix) ---\n{neuron_src or '(file not in generated_files yet)'}\n\n"
-        f"--- reference/weight_mapping.md (excerpt) ---\n{excerpt_weight_mapping()}\n\n"
+        f"--- reference/weight_mapping.md (FULL — Phase 4 skill doc) ---\n"
+        f"{full_reference_weight_mapping()}\n\n"
         f"--- SKILL.md (truncated) ---\n{load_skill_markdown()[:6000]}\n"
     )
 

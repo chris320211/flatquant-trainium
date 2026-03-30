@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from llm import anthropic_text, get_codegen_llm
 from prompts import TRAINIUM_BLOCKS_PROMPT
-from skill_loader import load_skill_markdown
+from skill_loader import load_block_testing_utils, load_skill_markdown
 from state import AgentState
 from tools import write_output_files
 
@@ -37,11 +37,16 @@ def trainium_blocks_node(state: AgentState) -> dict[str, Any]:
     generated_files: dict = state.get("generated_files", {})
 
     system_prompt = TRAINIUM_BLOCKS_PROMPT.replace("{slug}", slug)
+    modeling_path = state.get("modeling_source_path") or "use transformers installed class sources"
+    btu = load_block_testing_utils()
     user_message = (
         f"model_name: {model_name}\n"
-        f"slug: {slug}\n\n"
+        f"slug: {slug}\n"
+        f"original_modeling_source_path (for test imports — skill anti-cheat): {modeling_path}\n\n"
         f"--- Phase 1 plan (JSON) ---\n{json.dumps(plan, indent=2)[:24_000]}\n\n"
-        f"--- SKILL.md ---\n{load_skill_markdown()[:14_000]}\n"
+        f"--- scripts/block_testing_utils.py (FULL — you MUST call test_block_correctness) ---\n"
+        f"{btu}\n\n"
+        f"--- SKILL.md (Phase 2 section + context) ---\n{load_skill_markdown()[:16_000]}\n"
     )
 
     llm = get_codegen_llm()

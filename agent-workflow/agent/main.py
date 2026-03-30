@@ -1,13 +1,18 @@
 """
 FlatQuant Porting Agent — entry point.
 
-Pipeline: arch → ref_reader → codegen → registration → validation; if validation passes:
-  - TRAINIUM_SKILL_MODE=full (default): trainium_plan → trainium_blocks →
-    trainium_block_tests → trainium_integrate → trainium_weight_map (NxDI skill phases 1–4).
-  - TRAINIUM_SKILL_MODE=fast: single nxdi_port node (legacy one-shot scaffolding).
+Pipeline: arch → ref_reader → codegen → registration → validation → **flatquant_calibrate**
+  (runs only if FLATQUANT_CALIBRATE=smoke|full) → Trainium path → **trainium_compile_smoke**
+  (only if TRAINIUM_COMPILE_CMD / TRAINIUM_SMOKE_CMD set).
 
-Env:
-  TRAINIUM_RUN_BLOCK_TESTS=1 — run pytest in the output dir after Phase 2 (optional).
+  - TRAINIUM_SKILL_MODE=full (default): skill phases + verify.
+  - TRAINIUM_SKILL_MODE=fast: nxdi_port only, then compile_smoke.
+
+Env (see agent-workflow/agent/graph.py docstring for full list):
+  FLATQUANT_CALIBRATE=smoke|full — auto-run calibrate_{slug}.py (needs HF_TOKEN, weights).
+  FLATQUANT_CALIBRATE_MODEL — local path override for --model.
+  TRAINIUM_COMPILE_CMD / TRAINIUM_SMOKE_CMD — shell commands from output dir (Neuron).
+  TRAINIUM_RUN_BLOCK_TESTS=1, TRAINIUM_SKIP_VERIFY=1, TRAINIUM_SKIP_COMPILE_SMOKE=1
 
 Usage:
     python main.py mistralai/Mistral-7B-v0.1
@@ -78,6 +83,15 @@ def main() -> None:
     for fname, fpath in result.get("written_files", {}).items():
         print(f"  {fname} → {fpath}")
 
+    cal = final_state.get("flatquant_calibrate_result") or {}
+    print("\n=== FlatQuant calibration (optional) ===")
+    if cal.get("skipped"):
+        print(f"  Skipped: {cal.get('reason', 'unknown')}")
+    else:
+        print(f"  returncode={cal.get('returncode')} mode={cal.get('mode')}")
+        if cal.get("stderr_tail"):
+            print(f"  stderr (tail):\n{cal['stderr_tail'][-2000:]}")
+
     vr_passed = (final_state.get("validation_result") or {}).get("passed")
     _mode = os.environ.get("TRAINIUM_SKILL_MODE", "full").lower().strip()
     print("\n=== Trainium / NxDI ===")
@@ -102,8 +116,24 @@ def main() -> None:
                 f"  Phase 1 plan keys: {list(plan.keys())[:12]}"
                 f"{'...' if len(plan) > 12 else ''}"
             )
+            notes = plan.get("_agent_plan_notes")
+            if notes:
+                print(f"  Phase 1 notes: {notes}")
+        setup = final_state.get("trainium_skill_setup_result") or {}
+        if setup.get("written_files"):
+            print("  Skill setup (pre-Phase 2) wrote:")
+            for fname, fpath in setup["written_files"].items():
+                print(f"    {fname} → {fpath}")
         blocks = final_state.get("trainium_block_files") or {}
         print(f"  Phase 2 block files: {len(blocks)} path(s)")
+        audit = final_state.get("trainium_test_audit") or {}
+        if audit.get("files_checked") is not None:
+            print(
+                f"  Phase 2 test audit: passed={audit.get('passed')} "
+                f"flags={len(audit.get('flags') or [])}"
+            )
+            for fl in (audit.get("flags") or [])[:5]:
+                print(f"    ! {fl}")
         trep = final_state.get("trainium_test_report") or {}
         if trep.get("skipped"):
             print(f"  Phase 2 tests: skipped — {trep.get('reason', 'unknown')}")
@@ -122,6 +152,34 @@ def main() -> None:
             print("  Phase 4 weight map wrote:")
             for fname, fpath in wres["written_files"].items():
                 print(f"    {fname} → {fpath}")
+        ver = final_state.get("trainium_nxdi_verify") or {}
+        if ver.get("skipped"):
+            print(f"  Verify: skipped ({ver.get('reason')})")
+        elif ver:
+            print(
+                f"  Verify: neuronx_distributed import OK={ver.get('neuron_pkg_import_ok')} "
+                f"generated nxdi module exec OK={ver.get('neuron_module_exec_ok')}"
+            )
+            if ver.get("error"):
+                print(f"    error: {ver['error']}")
+
+    cps = final_state.get("trainium_compile_smoke_result") or {}
+    if vr_passed:
+        print("\n=== Neuron compile / smoke (optional) ===")
+        if cps.get("skipped"):
+            print(f"  Skipped: {cps.get('reason', 'unknown')}")
+        else:
+            if cps.get("compile"):
+                c = cps["compile"]
+                print(f"  compile rc={c.get('returncode')}")
+                if c.get("stderr_tail"):
+                    print(f"    stderr tail: {c['stderr_tail'][-1500:]}")
+            if cps.get("smoke"):
+                s = cps["smoke"]
+                print(f"  smoke rc={s.get('returncode')}")
+                if s.get("stderr_tail"):
+                    print(f"    stderr tail: {s['stderr_tail'][-1500:]}")
+            print(f"  overall_ok={cps.get('overall_ok')}")
 
     # Print the LLM validation summary from the message log.
     messages = final_state.get("messages", [])

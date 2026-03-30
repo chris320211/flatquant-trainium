@@ -25,15 +25,22 @@ class AgentState(TypedDict, total=False):
     # validation_agent populates
     validation_result: dict     # {passed: bool, errors: list[str]}
 
+    # After validation (optional subprocess)
+    flatquant_calibrate_result: dict  # smoke/full calibrate or skip
+
     # nxdi_port node (after validation if passed; TRAINIUM_SKILL_MODE=fast)
     nxdi_result: dict           # {skipped, reason?, written_files?, filenames?}
 
     # Trainium full skill chain (TRAINIUM_SKILL_MODE=full, default)
     trainium_plan: dict         # Phase 1 JSON (architecture inventory, partitions, etc.)
+    trainium_skill_setup_result: dict  # block_testing_utils copy + package inits
     trainium_block_files: dict  # {relative_path: content} from Phase 2 LLM
+    trainium_test_audit: dict   # anti-cheat static check (skill Phase 2 audit)
     trainium_test_report: dict  # pytest rc / stdout or skip reason
     trainium_integrate_result: dict  # {written_files, filenames, skipped?}
     trainium_weight_result: dict     # {written_files, filenames, skipped?}
+    trainium_nxdi_verify: dict       # import neuronx_distributed + exec neuron_*_nxdi.py
+    trainium_compile_smoke_result: dict  # optional TRAINIUM_COMPILE_CMD / SMOKE_CMD
 
     # Shared conversation/debug log
     messages: list

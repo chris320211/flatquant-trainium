@@ -16,13 +16,18 @@ def trainium_block_tests_node(state: AgentState) -> dict[str, Any]:
     out_slug = model_name.replace("/", "__").replace(" ", "_")
     out_dir = REPO_ROOT / "agent-workflow" / "outputs" / out_slug
 
-    utils_content = load_block_testing_utils()
-    files = {"tests/block_testing_utils.py": utils_content}
-    written = write_output_files.invoke({"model_name": model_name, "files": files})
-    generated_files = {**state.get("generated_files", {}), **files}
+    generated_files = dict(state.get("generated_files", {}))
+    extra: dict[str, str] = {}
+    if "tests/block_testing_utils.py" not in generated_files:
+        extra["tests/block_testing_utils.py"] = load_block_testing_utils()
+    if extra:
+        written_utils = write_output_files.invoke({"model_name": model_name, "files": extra})
+        generated_files.update(extra)
+    else:
+        written_utils = {}
 
     report: dict[str, Any] = {
-        "written_block_testing_utils": written.get("tests/block_testing_utils.py"),
+        "written_block_testing_utils": written_utils.get("tests/block_testing_utils.py"),
         "skipped": True,
         "reason": None,
         "returncode": None,

@@ -15,6 +15,20 @@ from tools import write_output_files
 
 from nodes.trainium_io import parse_llm_json_object
 
+_PLAN_KEYS = frozenset(
+    {
+        "architecture_inventory",
+        "reference_nxdi_model_path",
+        "neuron_substitution_map",
+        "inference_config_attributes",
+        "config_derived_notes",
+        "block_partitions",
+        "per_block_instructions",
+        "vlm_note",
+        "flatquant_file_refs",
+    }
+)
+
 
 def _model_slug(model_name: str) -> str:
     base = model_name.split("/")[-1]
@@ -46,11 +60,13 @@ def trainium_plan_node(state: AgentState) -> dict[str, Any]:
         vlm_extra = "\n\n--- reference/vlm_translation.md (excerpt) ---\n" + excerpt_vlm()
 
     system_prompt = TRAINIUM_PLAN_PROMPT.replace("{slug}", slug)
+    mpath = state.get("modeling_source_path") or "(unknown)"
     user_message = (
         f"model_name: {model_name}\n"
         f"slug: {slug}\n"
         f"model_type: {state.get('model_type', 'unknown')}\n"
-        f"has_moe: {state.get('has_moe', False)}\n\n"
+        f"has_moe: {state.get('has_moe', False)}\n"
+        f"modeling_source_path (HF / local): {mpath}\n\n"
         f"model_config (JSON):\n{json.dumps(model_config, indent=2)[:8000]}\n\n"
         f"--- modeling source (truncated) ---\n{modeling_source}\n\n"
         f"--- {modeling_key} (first 6000 chars) ---\n{modeling_src[:6000]}\n\n"
@@ -67,6 +83,18 @@ def trainium_plan_node(state: AgentState) -> dict[str, Any]:
     print(f"[trainium_plan] LLM {time.perf_counter() - t0:.1f}s", flush=True)
     raw = anthropic_text(response)
     plan = parse_llm_json_object(raw)
+    notes: list[str] = []
+    if plan.get("parse_error"):
+        notes.append("Planner output was not valid JSON; downstream phases may be degraded.")
+    else:
+        missing = sorted(_PLAN_KEYS - set(plan.keys()))
+        if missing:
+            notes.append(f"Plan missing expected keys (skill Phase 1): {missing}")
+        bp = plan.get("block_partitions")
+        if not isinstance(bp, list) or len(bp) == 0:
+            notes.append("block_partitions should be a non-empty list for Phase 2 translators.")
+    if notes:
+        plan = {**plan, "_agent_plan_notes": notes}
 
     plan_files = {f"nxdi/phase1_plan.json": json.dumps(plan, indent=2)}
     written = write_output_files.invoke({"model_name": model_name, "files": plan_files})

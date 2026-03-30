@@ -71,6 +71,20 @@ def load_block_testing_utils() -> str:
     return _BLOCK_TESTING_UTILS.read_text()
 
 
+def full_reference_scaffolding() -> str:
+    """Entire Phase 3 guide (small file in repo)."""
+    if not _REF_SCAFFOLDING.exists():
+        return f"(Missing: {_REF_SCAFFOLDING})"
+    return _REF_SCAFFOLDING.read_text()
+
+
+def full_reference_weight_mapping() -> str:
+    """Entire Phase 4 guide (small file in repo)."""
+    if not _REF_WEIGHT.exists():
+        return f"(Missing: {_REF_WEIGHT})"
+    return _REF_WEIGHT.read_text()
+
+
 def is_likely_vlm(modeling_source: str, model_config: dict | None) -> bool:
     """Heuristic: multimodal models need vlm_translation.md first."""
     src = (modeling_source or "").lower()

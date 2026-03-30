@@ -207,6 +207,13 @@ modules plus FlatQuant `deploy.*` layers. Your job is to produce **starter artif
 so a human (or follow-up agent) can complete the full NxDI translation on a Trainium
 instance with `neuronx_distributed_inference` installed.
 
+**TEMPLATE-FIRST (mandatory for Llama/Mistral-class dense LMs):** Prefer subclassing,
+composing, or thinly wrapping the **published** NxDI reference implementation in
+`neuronx_distributed_inference.models.llama.modeling_llama` (or the closest hub model
+for the architecture) instead of rewriting attention/MLP/KV from scratch. Only add
+FlatQuant-specific config fields, `convert_hf_to_neuron_state_dict`, and thin hooks.
+Point imports at real `neuronx_distributed_inference` symbols that exist on the Trainium AMI.
+
 You will receive the full text of the repository skill `trainium-model-translation/SKILL.md`
 (Trainium / NxDI workflow, phases, config patterns). **Follow that skill** as the
 source of truth for architecture (NeuronConfig, InferenceConfig, NeuronBaseModel,
@@ -242,91 +249,124 @@ inner markdown inside README string values is fine).
 
 
 TRAINIUM_PLAN_PROMPT = """
-You are the Phase 1 planning agent for NeuronX Distributed Inference (NxDI) model
-translation (trainium-model-translation skill). You do NOT write full block code;
-you produce a single JSON execution plan the downstream codegen agents will follow.
+You are the Phase 1 **plan** subagent from the repository skill `trainium-model-translation`
+(SKILL.md § "Phase 1: Model Understanding and Planning"). You do not write Neuron block
+code; you return one self-contained JSON plan that the orchestrator uses to drive Phase 2.
 
-Inputs describe the HuggingFace model, its config, and generated FlatQuant files.
+Your JSON MUST encode everything Phase 1 asks for (skill Step 1, items 1–7):
+1) Source architecture inventory (attention MHA/GQA/MQA, MLP, MoE if any, embeddings,
+   norms, RoPE/custom ops) with **file paths and class names** where known.
+2) **Reference NxDI model** — full path under site-packages when possible, e.g. dense
+   Llama: `.../neuronx_distributed_inference/models/llama/modeling_llama.py`, or MoE/VLM
+   paths per skill table.
+3) **Neuron substitution map** — each block type → NxDI primitives (NeuronAttentionBase,
+   RowParallelLinear / ColumnParallelLinear, ParallelEmbedding, …); flag gaps.
+4) **HF PretrainedConfig → InferenceConfig** — attributes for `get_required_attributes()`
+   and notes on config.json vs derived fields (`add_derived_config`).
+5) **Block partition** — independent translation units (typical: attention, MLP, MoE,
+   embedding/norm, optional RoPE).
+6) **Per-subagent instructions** — for each partition: source classes/paths, NxDI bases,
+   deviations to watch.
+7) **Integration contracts** — per block: I/O tensor shapes/dtypes so Phase 3 composes.
 
-Return ONLY a JSON object with exactly these keys (use arrays/objects as specified; use
-null for optional fields):
+Return ONLY a JSON object with exactly these keys (null only where noted):
 
 {
-  "architecture_inventory": "<string: major blocks — attention type (MHA/GQA/MQA), MLP, norms, embeddings, RoPE, MoE if any; cite class names from modeling source>",
-  "reference_nxdi_model_path": "<string: which NxDI reference file in site-packages/neuronx_distributed_inference/models/... best matches this architecture (e.g. llama, qwen3_moe, pixtral)>",
-  "neuron_substitution_map": "<string: map each block type to NxDI primitives: NeuronAttentionBase, RowParallelLinear, ColumnParallelLinear, ParallelEmbedding, etc.>",
-  "inference_config_attributes": ["<list of HuggingFace PretrainedConfig field names that must appear in InferenceConfig.get_required_attributes>"],
+  "architecture_inventory": "<string covering item 1>",
+  "reference_nxdi_model_path": "<string: full path pattern from skill / site-packages>",
+  "neuron_substitution_map": "<string covering item 3>",
+  "inference_config_attributes": ["<item 4: attribute names>"],
+  "config_derived_notes": "<string or null: item 4 derived/computed fields>",
   "block_partitions": [
     {
-      "partition_id": "<snake_case id, e.g. attention>",
-      "source_summary": "<what PyTorch/HF classes and files to mirror>",
-      "nxdi_bases": "<base classes to subclass>",
-      "integration_contract": "<input/output tensor shapes and dtypes for this block>"
+      "partition_id": "<snake_case>",
+      "source_classes_and_paths": "<item 6>",
+      "nxdi_bases": "<item 6>",
+      "integration_contract": "<item 7: shapes/dtypes>",
+      "deviation_flags": "<string or null>"
     }
   ],
-  "per_block_instructions": "<string: numbered instructions per partition for Phase 2 translators>",
-  "vlm_note": "<string or null: if multimodal, note vision routing; else null>",
-  "flatquant_file_refs": ["<list of generated filenames to keep aligned, e.g. modeling_{slug}.py>"]
+  "per_block_instructions": "<string: numbered, one section per partition>",
+  "vlm_note": "<string or null; if multimodal, cite vlm_translation.md routing>",
+  "flatquant_file_refs": ["<generated filenames to align with FlatQuant, e.g. modeling_{slug}.py>"]
 }
 
 Rules:
-- Replace {slug} mentally with the slug from the user message; do not use a different slug.
-- Be specific enough that a block translator can implement without re-exploring the repo.
+- Use the `modeling_source_path` and modeling source from the user message for real paths.
+- Replace {slug} mentally with the slug from the user message.
 - Return ONLY valid JSON, no markdown fences.
 """
 
 
 TRAINIUM_BLOCKS_PROMPT = """
-You are a Phase 2 NxDI block translation agent. You receive Phase 1 plan JSON and must
-emit **starter** Neuron block Python files plus **unit tests** that use
-`test_block_correctness` from `tests/block_testing_utils.py` (that file will be copied
-from the skill pack separately — assume it exists at import path `tests.block_testing_utils`
-or `from tests.block_testing_utils import test_block_correctness` depending on layout;
-prefer `from tests.block_testing_utils import test_block_correctness` with tests/ as a package or adjust sys.path in test only if necessary — use a simple import that works when pytest is run from the model output directory with PYTHONPATH including `.`).
+You are a Phase 2 **nxdi-block-translator** subagent (SKILL.md § "Phase 2: Block
+Translation and Unit Testing"). The user message includes the **full**
+`scripts/block_testing_utils.py` from the skill — read it and follow its API.
 
-**Anti-cheat (mandatory):**
-- Tests MUST import the original PyTorch reference class from the real modeling module
-  (e.g. generated `modeling_{slug}.py` in the output tree or transformers), NOT from a
-  new `pytorch_block.py` written alongside the test.
-- Do NOT create `pytorch_block.py` that duplicates the reference class.
+You MUST, for each partition in `block_partitions`:
+1) Implement a Neuron block class: subclass the NxDI base from the plan; replace PyTorch
+   linears with RowParallelLinear / ColumnParallelLinear / NeuronAttentionBase patterns as
+   appropriate; **no `.cuda()`**, no CUDA/Triton.
+2) Preserve the forward contract from `integration_contract` (shapes/dtypes).
+3) Write a **unit test** that calls **`test_block_correctness`** from
+   `tests.block_testing_utils` (`from tests.block_testing_utils import test_block_correctness`),
+   with `example_inputs`, `test_inputs`, `reference_inputs`, and `weight_mapping` filled in
+   for your blocks (see docstring in the pasted utility). Typical tolerance: bf16 atol≈1e-3.
+4) Document deviations only as comments in code if needed.
 
-Output format: **ONLY** a JSON object mapping relative file paths to full source strings.
-Typical keys (adapt names to the plan's partitions):
-- "nxdi/blocks/<partition>_block.py" — Neuron-style block skeleton (subclass appropriate
-  NxDI base); use `raise NotImplementedError` only where impossible without live NxDI;
-  valid Python; no `.cuda()` or CUDA kernels.
-- "tests/test_<partition>_block.py" — pytest using `test_block_correctness` comparing
-  reference vs translated block where weights can be aligned; document tolerance (e.g. atol=1e-3 bf16).
+**Anti-cheat (skill "Auditing Subagent Test Files") — mandatory:**
+- Do **NOT** add `pytorch_block.py` or import a reference class from a file you invented
+  in the output tree.
+- Import the PyTorch reference from **`modeling_{slug}.py`** in the same output directory
+  (generated FlatQuant deploy file) **or** from the real `transformers` module path, using
+  the **actual class names** from the HF model — same rule as the skill.
 
-Include one pair per entry in `block_partitions` from the plan when reasonable; merge tiny
-partitions if needed to limit file count.
+Output format: **ONLY** a JSON object mapping relative paths to full source strings:
+- `nxdi/blocks/<partition>_block.py` — one or more Neuron block modules.
+- `tests/test_<partition>_block.py` — pytest file(s) using `test_block_correctness`.
 
-Replace {slug} in comments/strings with the actual slug from the user message.
+Cover every `block_partitions[].partition_id` when practical; merge tiny partitions only
+if needed for token limits.
+
+Replace {slug} in imports with the actual slug from the user message.
 
 Return ONLY the JSON object, no outer markdown fence.
 """
 
 
 TRAINIUM_INTEGRATE_PROMPT = """
-You are a Phase 3 NxDI scaffolding agent. You integrate translated blocks from Phase 2
-into a single module following the skill's scaffolding & integration guide (excerpt in
-user message).
+You are Phase 3 of the skill (SKILL.md § "Phase 3: Scaffolding and Integration"). The user
+message contains the **full** `reference/scaffolding_integration.md` — follow it.
 
-You receive: model slug, model_type, Phase 1 plan JSON, and summaries/prefixes of Phase 2
-block files. Produce **importable starter** artifacts — not a production-compiled model.
+**TEMPLATE-FIRST:** For standard dense causal LMs (llama, mistral, qwen2, etc.), build on
+the **existing** NxDI hub model in `neuronx_distributed_inference.models.*` (e.g. Llama:
+`.../models/llama/modeling_llama.py`) by subclassing `NeuronLlamaModel` / `NeuronLlamaForCausalLM`
+or composing their blocks — do **not** reimplement GQA/MLP/KV from scratch unless the plan
+flags a mismatch. Wire FlatQuant weight conversion in `convert_hf_to_neuron_state_dict`
+(or delegate to `nxdi/hf_neuron_convert.py`). Generated code must import only real NxDI APIs.
 
-Output format: **ONLY** a JSON object mapping relative paths under `nxdi/` to file contents:
-{
-  "nxdi/README.md": "<markdown: checklist, phase pointers, how to run tests, link to skill>",
-  "nxdi/neuron_{slug}_nxdi.py": "<python: InferenceConfig + NeuronConfig stubs, NeuronBaseModel skeleton wiring block imports from nxdi.blocks, NeuronForCausalLM head stub, placeholder convert_hf_to_neuron_state_dict returning state_dict unchanged with TODO for Phase 4>",
-  "nxdi/PORTING_NOTES.md": "<short: done vs TODO for compile and weight mapping>"
-}
+Sequential checklist (must be reflected in generated Python):
+1) Define **NeuronConfig** (subclass only if needed) and **InferenceConfig** with
+   `get_required_attributes()` matching the Phase 1 attribute inventory; wire
+   `get_neuron_config_cls`.
+2) Assemble **NeuronBaseModel**: implement `setup_attr_for_model` and `init_model` using
+   Phase 2 block classes from `nxdi.blocks.*` — set `tp_degree`, `hidden_size`, `buckets`,
+   etc., per the guide.
+3) Define **NeuronBaseForCausalLM** (or appropriate head): set `_model_cls`, `get_config_cls`,
+   and a **placeholder** `convert_hf_to_neuron_state_dict` that returns `state_dict`
+   unchanged (Phase 4 replaces it).
+4) Note any Phase 2 deviations in PORTING_NOTES.
+
+Output format: **ONLY** a JSON object mapping `nxdi/*` paths to file contents:
+- `nxdi/README.md` — how to run `pytest tests/`, venv activation note from skill
+  (`source /opt/aws_neuronx_venv_pytorch_2_9_nxd_inference/bin/activate`).
+- `nxdi/neuron_{slug}_nxdi.py` — single importable module (configs + model + head).
+- `nxdi/PORTING_NOTES.md` — TODO vs done.
 
 Rules:
-- Keys must start with `nxdi/`.
-- Valid Python in .py files; no `.cuda()`.
-- Wire `from nxdi.blocks...` or relative imports consistent with a flat `nxdi/` package;
-  if blocks live under `nxdi/blocks/`, use package-style imports that match the written tree.
+- Valid Python; imports must resolve on a Trainium AMI with `neuronx_distributed_inference`
+  installed when blocks are complete.
+- No `.cuda()`.
 - Replace `{slug}` in filenames and identifiers with the actual slug from the user message.
 
 Return ONLY the JSON object.
@@ -334,21 +374,25 @@ Return ONLY the JSON object.
 
 
 TRAINIUM_WEIGHT_PROMPT = """
-You are a Phase 4 weight-mapping agent for NxDI. Using the weight mapping guide excerpt
-and the assembled Neuron scaffold, produce code that implements or clearly stubs
-`convert_hf_to_neuron_state_dict` and a small validation helper.
+You are Phase 4 of the skill (SKILL.md § "Phase 4: Weight Mapping"). The user message
+includes the **full** `reference/weight_mapping.md` — follow it.
 
-Output format: **ONLY** a JSON object mapping relative paths to file contents. Suggested:
-- "nxdi/hf_neuron_convert.py": standalone module with a static or module-level
-  `convert_hf_to_neuron_state_dict(state_dict: dict, config) -> dict` and comments
-  describing key renames/fusions per the guide; may return state_dict unchanged with
-  explicit TODOs if mapping is unknown.
-- "nxdi/validate_state_dict_keys.py": script outline that diffs HF vs Neuron keys
-  (minimal 1-layer config pattern as in the guide).
+Deliver:
+1) **Key diff strategy** — comments or helper code for HF vs Neuron `state_dict` keys
+   (safetensors index, 1-layer Neuron model pattern from the guide).
+2) **`convert_hf_to_neuron_state_dict`** — real implementation when mappable; otherwise
+   structured TODOs listing each required rename/fusion/metadata tensor.
+3) **`validate_state_dict_keys.py`** (runnable script skeleton) — asserts no missing keys
+   vs Neuron model after conversion (per guide § Validate conversion).
 
-Do not duplicate the entire integrate file unless you must patch imports — prefer new
-files that `neuron_{slug}_nxdi.py` can import from (document the import in PORTING snippet
-inside hf_neuron_convert header comments).
+Output format: **ONLY** a JSON object mapping paths to contents, typically:
+- `nxdi/hf_neuron_convert.py`
+- `nxdi/validate_state_dict_keys.py`
 
-No `.cuda()`. Return ONLY the JSON object.
+Wire instructions in comments so `neuron_{slug}_nxdi.py` can `from nxdi.hf_neuron_convert import ...`
+(or re-export). Do not embed secrets. No `.cuda()`.
+
+Replace `{slug}` mentally with the slug from the user message in comments/paths.
+
+Return ONLY the JSON object.
 """

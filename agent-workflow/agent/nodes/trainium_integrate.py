@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from llm import anthropic_text, get_codegen_llm
 from prompts import TRAINIUM_INTEGRATE_PROMPT
-from skill_loader import excerpt_scaffolding, load_skill_markdown
+from skill_loader import full_reference_scaffolding, load_skill_markdown
 from state import AgentState
 from tools import write_output_files
 
@@ -45,7 +45,8 @@ def trainium_integrate_node(state: AgentState) -> dict[str, Any]:
         f"--- Phase 1 plan ---\n{json.dumps(plan, indent=2)[:12_000]}\n\n"
         f"--- Phase 2 block files preview ---\n{block_preview or '(none)'}\n\n"
         f"--- {modeling_key} (prefix) ---\n{modeling_src}\n\n"
-        f"--- reference/scaffolding_integration.md (excerpt) ---\n{excerpt_scaffolding()}\n\n"
+        f"--- reference/scaffolding_integration.md (FULL — Phase 3 skill doc) ---\n"
+        f"{full_reference_scaffolding()}\n\n"
         f"--- SKILL.md (truncated) ---\n{load_skill_markdown()[:8000]}\n"
     )
 
