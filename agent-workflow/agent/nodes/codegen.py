@@ -5,6 +5,7 @@ Takes the arch schema + ref patterns and generates all model-specific
 FlatQuant source files: wrappers, calibration script, quant config, deploy model.
 """
 
+import ast
 import json
 import re
 from typing import Any
@@ -43,12 +44,16 @@ def codegen_node(state: AgentState) -> dict[str, Any]:
     # Summarise linears to avoid hitting context limits.
     # Group by layer index prefix to show the pattern concisely.
     linears_summary = _summarise_linears(linears)
+    forward_hints = _hint_forward_signatures(model_type, modeling_source)
 
     user_message = (
         f"model_name: {model_name}\n"
         f"slug: {slug}\n"
         f"model_type: {model_type}\n"
         f"has_moe: {has_moe}\n\n"
+        f"installed_forward_signatures (from the installed HuggingFace modeling file — "
+        f"subclass forward() must include these parameter names + **kwargs):\n"
+        f"{json.dumps(forward_hints, indent=2)}\n\n"
         f"model_config (selected fields):\n"
         f"{json.dumps(_selected_config_fields(model_config), indent=2)}\n\n"
         f"linears (layer name → shape):\n"
@@ -94,6 +99,64 @@ def _selected_config_fields(config: dict) -> dict:
         "hidden_act", "rope_theta", "attention_bias",
     ]
     return {k: config[k] for k in keys if k in config}
+
+
+def _extract_forward_signatures_from_source(source: str) -> dict[str, list[str]]:
+    """Parse source and return {ClassName: [param_names]} for each forward() method."""
+    sigs: dict[str, list[str]] = {}
+    if not source:
+        return sigs
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return sigs
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef) and item.name == "forward":
+                params = [arg.arg for arg in item.args.args]
+                params.extend(a.arg for a in item.args.kwonlyargs)
+                if item.args.vararg:
+                    params.append("*" + item.args.vararg.arg)
+                if item.args.kwarg:
+                    params.append("**" + item.args.kwarg.arg)
+                sigs[node.name] = params
+    return sigs
+
+
+def _hint_forward_signatures(model_type: str, modeling_source: str) -> dict[str, list[str]]:
+    """
+    Subset of forward() signatures from the installed HF modeling file for the codegen LLM.
+    Filters by model_type title case (e.g. llama -> Llama) to keep context small.
+    """
+    all_sigs = _extract_forward_signatures_from_source(modeling_source)
+    if not all_sigs:
+        return {}
+    prefix = model_type.title() if model_type else ""
+    hints = {k: v for k, v in all_sigs.items() if prefix and prefix in k}
+    if not hints:
+        hints = dict(list(all_sigs.items())[:30])
+    elif len(hints) > 35:
+        priority = [
+            n
+            for n in hints
+            if any(
+                x in n
+                for x in (
+                    "Attention",
+                    "MLP",
+                    "DecoderLayer",
+                    "ForCausalLM",
+                    "Model",
+                    "Rotary",
+                )
+            )
+        ]
+        if priority:
+            hints = {k: hints[k] for k in priority[:35]}
+    return hints
 
 
 def _summarise_linears(linears: dict) -> dict:

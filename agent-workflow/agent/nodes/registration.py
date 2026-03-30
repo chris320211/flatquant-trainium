@@ -5,6 +5,7 @@ Generates the patching logic that swaps original modules for FlatQuant
 quantized ones: apply_flatquant_to_{model} and a runner script.
 """
 
+import ast
 import json
 import re
 from typing import Any
@@ -40,10 +41,16 @@ def registration_node(state: AgentState) -> dict[str, Any]:
     # Summarise linears (same deduplicated format as codegen uses).
     linears_summary = _summarise_linears(linears)
 
+    utils_key = f"{slug}_utils.py"
+    utils_src = generated_files.get(utils_key, "")
+    codegen_class_names = _extract_flatquant_class_names(utils_src)
+
     user_message = (
         f"model_name: {model_name}\n"
         f"slug: {slug}\n"
         f"model_type: {model_type}\n\n"
+        f"codegen_class_names (exact FlatQuant wrapper classes in {utils_key} — use ONLY these in imports):\n"
+        f"{json.dumps(codegen_class_names, indent=2)}\n\n"
         f"model_config (selected):\n"
         f"{json.dumps(_selected_config(model_config), indent=2)}\n\n"
         f"linears (deduplicated):\n"
@@ -86,6 +93,21 @@ def registration_node(state: AgentState) -> dict[str, Any]:
             }
         ],
     }
+
+
+def _extract_flatquant_class_names(source: str) -> list[str]:
+    """Class names starting with FlatQuant from generated utils (AST)."""
+    if not source:
+        return []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name.startswith("FlatQuant"):
+            names.append(node.name)
+    return sorted(set(names))
 
 
 def _selected_config(config: dict) -> dict:

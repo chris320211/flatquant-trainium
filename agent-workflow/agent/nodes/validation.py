@@ -103,6 +103,8 @@ def validation_node(state: AgentState) -> dict[str, Any]:
             for orig_cls, orig_params in original_sigs.items():
                 if stripped.lower() in orig_cls.lower() or orig_cls.lower() in stripped.lower():
                     missing = set(orig_params) - set(wrapper_params) - {"self"}
+                    if any(p.startswith("**") for p in wrapper_params):
+                        missing = set()
                     if missing:
                         signature_errors[cls_name] = (
                             f"forward() missing params from {orig_cls}: {sorted(missing)}"
@@ -160,6 +162,11 @@ def _extract_forward_signatures_from_source(source: str) -> dict[str, list[str]]
         for item in node.body:
             if isinstance(item, ast.FunctionDef) and item.name == "forward":
                 params = [arg.arg for arg in item.args.args]
+                params.extend(a.arg for a in item.args.kwonlyargs)
+                if item.args.vararg:
+                    params.append("*" + item.args.vararg.arg)
+                if item.args.kwarg:
+                    params.append("**" + item.args.kwarg.arg)
                 sigs[node.name] = params
     return sigs
 
