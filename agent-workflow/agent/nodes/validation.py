@@ -45,6 +45,56 @@ def _calibrate_forbidden_import_message(filename: str, source: str) -> str | Non
     return None
 
 
+def _deploy_quantization_public_names() -> set[str]:
+    """Top-level public class/function names in FlatQuantBundled deploy/nn/quantization.py."""
+    path = REPO_ROOT / "FlatQuantBundled" / "deploy" / "nn" / "quantization.py"
+    try:
+        qsrc = path.read_text()
+    except OSError:
+        return {"Quantizer"}
+    try:
+        tree = ast.parse(qsrc)
+    except SyntaxError:
+        return {"Quantizer"}
+    return {
+        n.name
+        for n in tree.body
+        if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and not n.name.startswith("_")
+    }
+
+
+def _modeling_deploy_quantization_import_error(filename: str, source: str) -> str | None:
+    """
+    Block hallucinated imports from deploy.nn.quantization (only real symbols allowed).
+    """
+    if not (filename.startswith("modeling_") and filename.endswith(".py")):
+        return None
+    allowed = _deploy_quantization_public_names()
+    if not allowed:
+        allowed = {"Quantizer"}
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.module != "deploy.nn.quantization":
+            continue
+        if any(alias.name == "*" for alias in node.names):
+            return (
+                "Static check: do not use `from deploy.nn.quantization import *`; "
+                f"import only: {sorted(allowed)}"
+            )
+        bad = [alias.name for alias in node.names if alias.name not in allowed]
+        if bad:
+            return (
+                f"Static check: invalid name(s) imported from deploy.nn.quantization: {bad}. "
+                f"Allowed: {sorted(allowed)}"
+            )
+    return None
+
+
 def _quant_config_get_quantization_args_message(filename: str, source: str) -> str | None:
     """run_{slug}.py imports get_quantization_args from quant_config_{slug}.py."""
     if not (filename.startswith("quant_config_") and filename.endswith(".py")):
@@ -122,6 +172,11 @@ def validation_node(state: AgentState) -> dict[str, Any]:
         bad_quant = _quant_config_get_quantization_args_message(filename, source_code)
         if bad_quant:
             import_errors[filename] = bad_quant
+            continue
+
+        bad_deploy_q = _modeling_deploy_quantization_import_error(filename, source_code)
+        if bad_deploy_q:
+            import_errors[filename] = bad_deploy_q
             continue
 
         # 2. Import check.
