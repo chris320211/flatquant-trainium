@@ -26,6 +26,25 @@ from tools import write_output_files
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+def _calibrate_forbidden_import_message(filename: str, source: str) -> str | None:
+    """
+    Block hallucinated FlatQuant calibration modules (no flatquant.cali_utils in repo).
+    """
+    if not (filename.startswith("calibrate_") and filename.endswith(".py")):
+        return None
+    if "flatquant.cali_utils" in source:
+        return (
+            "Static import error: flatquant.cali_utils does not exist. "
+            "Use flatquant.train_utils (cali_flat_quant) per FlatQuantBundled/main.py."
+        )
+    if re.search(r"from\s+flatquant\s+import\s+cali_utils\b", source):
+        return (
+            "Static import error: do not import cali_utils from flatquant. "
+            "Use flatquant.train_utils for cali_flat_quant."
+        )
+    return None
+
+
 def _model_slug(model_name: str) -> str:
     base = model_name.split("/")[-1]
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", base).lower().strip("_")
@@ -73,6 +92,11 @@ def validation_node(state: AgentState) -> dict[str, Any]:
             compile(source_code, filename, "exec")
         except SyntaxError as e:
             syntax_errors[filename] = f"SyntaxError at line {e.lineno}: {e.msg}"
+            continue
+
+        bad_cali = _calibrate_forbidden_import_message(filename, source_code)
+        if bad_cali:
+            import_errors[filename] = bad_cali
             continue
 
         # 2. Import check.

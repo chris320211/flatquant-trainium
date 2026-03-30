@@ -55,11 +55,17 @@ Generate the following files as a JSON object {filename: source_code}:
    Mirror the structure of llama_utils.py exactly.
 
 2. `calibrate_{slug}.py` — Calibration entry script:
-   - Adapted from FlatQuant/main.py
+   - Adapted from FlatQuant/main.py (see canonical_flatquant_main_snippet in the user message)
    - Uses the model-specific layer accessor (from ref_patterns.layer_accessor)
    - Uses FP8 dtype (torch.float8_e4m3fn) and PyTorch kernels
-   - Calls `apply_flatquant_to_{slug}` and then `cali_flat_quant`
+   - Calls `apply_flatquant_to_{slug}` and then `cali_flat_quant` from **flatquant.train_utils**
    - Does NOT use CUDA autocast — use `torch.amp.autocast("cpu")` or no-op
+   - MANDATORY: Import calibration via `import flatquant.train_utils as train_utils` (or
+     `from flatquant.train_utils import cali_flat_quant`). There is NO `flatquant.cali_utils`
+     module — never import `flatquant.cali_utils`, `cali_utils` from flatquant, or invent
+     similar paths.
+   - Mirror main.py support imports where needed: `flatquant.utils`, `flatquant.args_utils`,
+     `flatquant.model_utils`, `flatquant.data_utils`, `flatquant.train_utils`, `flatquant.flat_utils`
 
 3. `quant_config_{slug}.py` — Quantization configuration:
    - Dict mapping layer name patterns to quantization settings
@@ -96,6 +102,7 @@ CRITICAL RULES:
 - Match the exact import style from ref_patterns.key_import_lines
 - Each generated file must be complete and syntactically valid Python
 - calibrate_{slug}.py may use `from datasets import load_dataset` — that package is listed in agent requirements
+- calibrate_{slug}.py MUST NOT reference `flatquant.cali_utils` (nonexistent); use `flatquant.train_utils` for `cali_flat_quant`
 
 Return ONLY a JSON object: {"filename": "complete_source_code", ...}
 """

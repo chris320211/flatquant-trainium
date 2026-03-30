@@ -8,12 +8,27 @@ FlatQuant source files: wrappers, calibration script, quant config, deploy model
 import ast
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from llm import anthropic_text, get_codegen_llm
 from prompts import CODEGEN_PROMPT
 from state import AgentState
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_FLATQUANT_MAIN = _REPO_ROOT / "FlatQuantBundled" / "main.py"
+_MAIN_SNIPPET_END_LINE = 40  # imports + main() through cali_flat_quant call
+
+
+def _canonical_flatquant_main_snippet() -> str:
+    """Verbatim top of FlatQuant main.py so codegen always sees real import paths."""
+    try:
+        text = _FLATQUANT_MAIN.read_text()
+    except OSError:
+        return f"(missing or unreadable: {_FLATQUANT_MAIN})"
+    lines = text.splitlines()
+    return "\n".join(lines[:_MAIN_SNIPPET_END_LINE])
 
 
 def _model_slug(model_name: str) -> str:
@@ -45,12 +60,16 @@ def codegen_node(state: AgentState) -> dict[str, Any]:
     # Group by layer index prefix to show the pattern concisely.
     linears_summary = _summarise_linears(linears)
     forward_hints = _hint_forward_signatures(model_type, modeling_source)
+    main_snippet = _canonical_flatquant_main_snippet()
 
     user_message = (
         f"model_name: {model_name}\n"
         f"slug: {slug}\n"
         f"model_type: {model_type}\n"
         f"has_moe: {has_moe}\n\n"
+        f"canonical_flatquant_main_snippet (verbatim FlatQuant/main.py — use these import paths "
+        f"for calibrate_{slug}.py; cali_flat_quant lives in flatquant.train_utils):\n"
+        f"```python\n{main_snippet}\n```\n\n"
         f"installed_forward_signatures (from the installed HuggingFace modeling file — "
         f"subclass forward() must include these parameter names + **kwargs):\n"
         f"{json.dumps(forward_hints, indent=2)}\n\n"
