@@ -19,6 +19,9 @@ from state import AgentState
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _FLATQUANT_MAIN = _REPO_ROOT / "FlatQuantBundled" / "main.py"
 _MAIN_SNIPPET_END_LINE = 40  # imports + main() through cali_flat_quant call
+_DEPLOY_NN_INIT = _REPO_ROOT / "FlatQuantBundled" / "deploy" / "nn" / "__init__.py"
+_DEPLOY_NN_QUANTIZATION = _REPO_ROOT / "FlatQuantBundled" / "deploy" / "nn" / "quantization.py"
+_QUANTIZATION_SNIPPET_MAX_LINES = 70
 
 
 def _canonical_flatquant_main_snippet() -> str:
@@ -29,6 +32,25 @@ def _canonical_flatquant_main_snippet() -> str:
         return f"(missing or unreadable: {_FLATQUANT_MAIN})"
     lines = text.splitlines()
     return "\n".join(lines[:_MAIN_SNIPPET_END_LINE])
+
+
+def _canonical_deploy_quantization_snippet() -> str:
+    """Verbatim deploy/nn exports + Quantizer implementation (ground truth for modeling imports)."""
+    parts: list[str] = []
+    for path, label in (
+        (_DEPLOY_NN_INIT, "deploy/nn/__init__.py"),
+        (_DEPLOY_NN_QUANTIZATION, "deploy/nn/quantization.py"),
+    ):
+        try:
+            text = path.read_text()
+        except OSError:
+            parts.append(f"({label}: missing or unreadable: {path})")
+            continue
+        if path.name == "quantization.py":
+            lines = text.splitlines()
+            text = "\n".join(lines[:_QUANTIZATION_SNIPPET_MAX_LINES])
+        parts.append(f"=== {label} ===\n{text.rstrip()}")
+    return "\n\n".join(parts)
 
 
 def _model_slug(model_name: str) -> str:
@@ -61,6 +83,7 @@ def codegen_node(state: AgentState) -> dict[str, Any]:
     linears_summary = _summarise_linears(linears)
     forward_hints = _hint_forward_signatures(model_type, modeling_source)
     main_snippet = _canonical_flatquant_main_snippet()
+    deploy_quant_snippet = _canonical_deploy_quantization_snippet()
 
     user_message = (
         f"model_name: {model_name}\n"
@@ -70,6 +93,10 @@ def codegen_node(state: AgentState) -> dict[str, Any]:
         f"canonical_flatquant_main_snippet (verbatim FlatQuant/main.py — use these import paths "
         f"for calibrate_{slug}.py; cali_flat_quant lives in flatquant.train_utils):\n"
         f"```python\n{main_snippet}\n```\n\n"
+        f"canonical_deploy_quantization_snippet (verbatim deploy/nn — activation quant is "
+        f"`Quantizer` / `deploy.nn.Quantizer` only; do not import quantize_activation or other "
+        f"invented names from deploy.nn.quantization in modeling_{slug}.py):\n"
+        f"```python\n{deploy_quant_snippet}\n```\n\n"
         f"installed_forward_signatures (from the installed HuggingFace modeling file — "
         f"subclass forward() must include these parameter names + **kwargs):\n"
         f"{json.dumps(forward_hints, indent=2)}\n\n"

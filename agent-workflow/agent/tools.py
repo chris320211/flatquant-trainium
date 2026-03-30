@@ -28,6 +28,7 @@ FLATQUANT_REFERENCE_FILES = {
     "train_utils": FLATQUANT_ROOT / "flatquant/train_utils.py",
     "main": FLATQUANT_ROOT / "main.py",
     "deploy_modeling_llama": FLATQUANT_ROOT / "deploy/transformers/modeling_llama.py",
+    "deploy_nn_quantization": FLATQUANT_ROOT / "deploy/nn/quantization.py",
     "online_trans": FLATQUANT_ROOT / "deploy/functional/online_trans.py",
     "kron_matmul_pytorch": FLATQUANT_ROOT / "deploy/kernels/pytorch/kron_matmul_pytorch.py",
     "block_matmul_pytorch": FLATQUANT_ROOT / "deploy/kernels/pytorch/block_matmul_pytorch.py",
@@ -95,7 +96,7 @@ def read_flatquant_files(file_keys: list[str]) -> dict:
     Read one or more FlatQuant reference files by key.
 
     Valid keys: llama_utils, deepseekv3_utils, qwen_utils, llama31_utils,
-    train_utils, main, deploy_modeling_llama, online_trans,
+    train_utils, main, deploy_modeling_llama, deploy_nn_quantization, online_trans,
     kron_matmul_pytorch, block_matmul_pytorch, flat_linear, trans_utils,
     quant_utils.
 

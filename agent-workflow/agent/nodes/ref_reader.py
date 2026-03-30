@@ -24,6 +24,7 @@ _ALWAYS_READ = [
     "train_utils",
     "main",
     "deploy_modeling_llama",
+    "deploy_nn_quantization",
     "online_trans",
     "kron_matmul_pytorch",
     "block_matmul_pytorch",

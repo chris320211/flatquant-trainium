@@ -7,7 +7,7 @@ You have access to the `read_flatquant_files` tool. Use it to read the relevant 
 
 Given the target model's type and whether it has MoE routing, select and read:
 - ALWAYS: llama_utils, flat_linear, trans_utils, quant_utils, train_utils, main,
-  deploy_modeling_llama, online_trans, kron_matmul_pytorch, block_matmul_pytorch
+  deploy_modeling_llama, deploy_nn_quantization, online_trans, kron_matmul_pytorch, block_matmul_pytorch
 - IF MoE present: also read deepseekv3_utils
 
 After reading, return a structured JSON summary with the following keys:
@@ -21,7 +21,8 @@ After reading, return a structured JSON summary with the following keys:
   "flatquant_linear_init": "<FlatQuantizedLinear constructor signature and what it needs>",
   "transform_classes": "<list of transform classes used: SVDDecomposeTransMatrix, etc. and when each is used>",
   "pytorch_kernel_imports": "<exact import statements for FP8 PyTorch kernels to use instead of CUDA/Triton>",
-  "deploy_model_pattern": "<description of how deploy/transformers/modeling_llama.py defines FlatQuantConfig, quantizers, state dict remapping>",
+  "deploy_model_pattern": "<description of how deploy/transformers/modeling_llama.py defines FlatQuantConfig, quantizers (deploy.nn.Quantizer), state dict remapping>",
+  "deploy_quantization_api": "<exact public symbols in deploy/nn/quantization.py — only Quantizer; no quantize_activation>",
   "key_import_lines": "<the exact Python import lines from llama_utils.py the new file should mirror>",
   "amp_dtype": "<which dtype to use for AMP in calibration, e.g. torch.float16 or torch.bfloat16>"
 }
@@ -80,7 +81,11 @@ Generate the following files as a JSON object {filename: source_code}:
 4. `modeling_{slug}.py` — Deploy/inference model:
    - `FlatQuant{Model}Config` with model_type = "{model_type}_FlatQuant"
    - `FlatQuant{Model}Attention` and `FlatQuant{Model}MLP` for inference
-     (use deploy.nn.Linear4bit, deploy.nn.OnlineTrans, deploy.nn.quantization)
+     using `deploy.nn.Linear4bit`, `deploy.nn.OnlineTrans`, and activation handling via
+     **`deploy.nn.Quantizer`** (preferred, matches deploy/transformers/modeling_llama.py) or
+     `from deploy.nn.quantization import Quantizer`.
+     The module `deploy.nn.quantization` exposes **only** the `Quantizer` class — there is no
+     `quantize_activation` or other helper; never import invented names from that module.
    - State-dict key remapping following the deploy/transformers/modeling_llama.py pattern
    - `register_buffer` alignment for shared left_matrix/right_matrix
    - Uses PyTorch kernel imports: `from deploy.kernels.pytorch.kron_matmul_pytorch import ...`
@@ -108,6 +113,7 @@ CRITICAL RULES:
 - Each generated file must be complete and syntactically valid Python
 - calibrate_{slug}.py may use `from datasets import load_dataset` — that package is listed in agent requirements
 - calibrate_{slug}.py MUST NOT reference `flatquant.cali_utils` (nonexistent); use `flatquant.train_utils` for `cali_flat_quant`
+- modeling_{slug}.py: for `from deploy.nn.quantization import ...`, only `Quantizer` is valid (see canonical_deploy_quantization_snippet in the user message)
 
 Return ONLY a JSON object: {"filename": "complete_source_code", ...}
 """
