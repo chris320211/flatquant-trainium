@@ -4,7 +4,7 @@ description: Port models defined in PyTorch to run on AWS Trainium accelerators.
 ---
 
 # AWS Trainium
-AWS Neuron hardware consists of custom-designed machine learning accelerators optimized for deep learning workloads.
+AWS Neuron hardware consists of custom-designed machine learning accelerators optimized for deep learning workloads. 
 
 At the heart of the Trn1 instance are 16 x Trainium chips (each Trainium include 2 x NeuronCore-v2). Trainium is the second generation purpose-built Machine Learning accelerator from AWS.
 
@@ -28,7 +28,7 @@ NxD Inference(NxDI) library offers the following benefits:
 - Support for NKI Kernels: NxD Inference provides support for integrating custom NKI kernels on Trainium and Inferentia instances.
 
 ## Defining Models in NxDI
-This guide demonstrates how to adapt an existing PyTorch model to run on Neuron with the NeuronX Distributed (NxD) Inference library.
+This guide demonstrates how to adapt an existing PyTorch model to run on Neuron with the NeuronX Distributed (NxD) Inference library. 
 
 ### 1. Define a NeuronConfig Class
 Define a Neuron configuration class, which extends NeuronConfig. NeuronConfig includes Neuron-specific configuration parameters. In the config class for your model, you can define any additional Neuron-specific configuration parameters that your model requires.
