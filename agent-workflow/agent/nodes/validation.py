@@ -45,6 +45,26 @@ def _calibrate_forbidden_import_message(filename: str, source: str) -> str | Non
     return None
 
 
+def _quant_config_get_quantization_args_message(filename: str, source: str) -> str | None:
+    """run_{slug}.py imports get_quantization_args from quant_config_{slug}.py."""
+    if not (filename.startswith("quant_config_") and filename.endswith(".py")):
+        return None
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    has = any(
+        isinstance(n, ast.FunctionDef) and n.name == "get_quantization_args"
+        for n in tree.body
+    )
+    if not has:
+        return (
+            "Static check: define def get_quantization_args(...) at module level; "
+            "run script imports it from this module."
+        )
+    return None
+
+
 def _model_slug(model_name: str) -> str:
     base = model_name.split("/")[-1]
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", base).lower().strip("_")
@@ -97,6 +117,11 @@ def validation_node(state: AgentState) -> dict[str, Any]:
         bad_cali = _calibrate_forbidden_import_message(filename, source_code)
         if bad_cali:
             import_errors[filename] = bad_cali
+            continue
+
+        bad_quant = _quant_config_get_quantization_args_message(filename, source_code)
+        if bad_quant:
+            import_errors[filename] = bad_quant
             continue
 
         # 2. Import check.

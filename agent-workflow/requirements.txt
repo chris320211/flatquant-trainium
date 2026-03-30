@@ -7,3 +7,4 @@ python-dotenv>=1.0.0
 huggingface-hub>=0.23.0
 accelerate>=0.30.0
 datasets>=2.14.0
+termcolor>=2.0.0

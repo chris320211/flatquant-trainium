@@ -45,12 +45,18 @@ def registration_node(state: AgentState) -> dict[str, Any]:
     utils_src = generated_files.get(utils_key, "")
     codegen_class_names = _extract_flatquant_class_names(utils_src)
 
+    quant_key = f"quant_config_{slug}.py"
+    quant_src = generated_files.get(quant_key, "")
+    quant_config_functions = _extract_module_level_function_names(quant_src)
+
     user_message = (
         f"model_name: {model_name}\n"
         f"slug: {slug}\n"
         f"model_type: {model_type}\n\n"
         f"codegen_class_names (exact FlatQuant wrapper classes in {utils_key} — use ONLY these in imports):\n"
         f"{json.dumps(codegen_class_names, indent=2)}\n\n"
+        f"quant_config_top_level_functions (from {quant_key} — import only these names from quant_config):\n"
+        f"{json.dumps(quant_config_functions, indent=2)}\n\n"
         f"model_config (selected):\n"
         f"{json.dumps(_selected_config(model_config), indent=2)}\n\n"
         f"linears (deduplicated):\n"
@@ -93,6 +99,21 @@ def registration_node(state: AgentState) -> dict[str, Any]:
             }
         ],
     }
+
+
+def _extract_module_level_function_names(source: str) -> list[str]:
+    """Top-level def names in a module (AST)."""
+    if not source:
+        return []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    return sorted(
+        n.name
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef)
+    )
 
 
 def _extract_flatquant_class_names(source: str) -> list[str]:
