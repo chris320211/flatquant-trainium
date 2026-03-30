@@ -7,6 +7,7 @@ that codegen needs: wrapper structure, calibration flow, kernel imports, etc.
 
 import json
 import re
+import time
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -46,7 +47,7 @@ def ref_reader_node(state: AgentState) -> dict[str, Any]:
     if has_moe:
         keys_to_read += _MOE_EXTRA
 
-    print(f"[ref_reader] Reading {len(keys_to_read)} reference files ...")
+    print(f"[ref_reader] Reading {len(keys_to_read)} reference files ...", flush=True)
 
     # Pre-read all files deterministically — avoids tool-call round-trips for
     # file I/O and lets the LLM focus on pattern extraction.
@@ -72,7 +73,13 @@ def ref_reader_node(state: AgentState) -> dict[str, Any]:
         HumanMessage(content=user_message),
     ]
 
+    print(
+        "[ref_reader] Calling planning LLM (Anthropic); no further logs until the response returns.",
+        flush=True,
+    )
+    t0 = time.perf_counter()
     response = llm.invoke(messages)
+    print(f"[ref_reader] LLM round-trip took {time.perf_counter() - t0:.1f}s", flush=True)
     raw_text: str = anthropic_text(response)
 
     # Parse the JSON from the response (strip markdown fences if present).
@@ -87,7 +94,7 @@ def ref_reader_node(state: AgentState) -> dict[str, Any]:
         # Fall back: store raw text so codegen can still use it as prose.
         ref_patterns = {"raw": raw_text}
 
-    print("[ref_reader] Pattern extraction complete.")
+    print("[ref_reader] Pattern extraction complete.", flush=True)
 
     return {
         "ref_patterns": ref_patterns,

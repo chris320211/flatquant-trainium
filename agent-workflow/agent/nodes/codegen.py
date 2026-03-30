@@ -8,6 +8,7 @@ FlatQuant source files: wrappers, calibration script, quant config, deploy model
 import ast
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -76,7 +77,7 @@ def codegen_node(state: AgentState) -> dict[str, Any]:
     has_moe: bool = state.get("has_moe", False)
     ref_patterns: dict = state.get("ref_patterns", {})
 
-    print(f"[codegen] Generating FlatQuant files for {model_name} (slug={slug}) ...")
+    print(f"[codegen] Generating FlatQuant files for {model_name} (slug={slug}) ...", flush=True)
 
     # Summarise linears to avoid hitting context limits.
     # Group by layer index prefix to show the pattern concisely.
@@ -118,12 +119,19 @@ def codegen_node(state: AgentState) -> dict[str, Any]:
         HumanMessage(content=user_message),
     ]
 
+    print(
+        "[codegen] Calling codegen LLM (Anthropic); no further logs until the response returns "
+        "(often several minutes for four files).",
+        flush=True,
+    )
+    t0 = time.perf_counter()
     response = llm.invoke(messages)
+    print(f"[codegen] LLM round-trip took {time.perf_counter() - t0:.1f}s", flush=True)
     raw_text: str = anthropic_text(response)
 
     generated_files = _parse_json_response(raw_text)
 
-    print(f"[codegen] Generated {len(generated_files)} files: {list(generated_files.keys())}")
+    print(f"[codegen] Generated {len(generated_files)} files: {list(generated_files.keys())}", flush=True)
 
     return {
         "generated_files": generated_files,

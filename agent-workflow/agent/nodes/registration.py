@@ -8,6 +8,7 @@ quantized ones: apply_flatquant_to_{model} and a runner script.
 import ast
 import json
 import re
+import time
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -36,7 +37,7 @@ def registration_node(state: AgentState) -> dict[str, Any]:
     ref_patterns: dict = state.get("ref_patterns", {})
     generated_files: dict = state.get("generated_files", {})
 
-    print(f"[registration] Generating patching logic for {model_name} ...")
+    print(f"[registration] Generating patching logic for {model_name} ...", flush=True)
 
     # Summarise linears (same deduplicated format as codegen uses).
     linears_summary = _summarise_linears(linears)
@@ -75,7 +76,14 @@ def registration_node(state: AgentState) -> dict[str, Any]:
         HumanMessage(content=user_message),
     ]
 
+    print(
+        "[registration] Calling codegen LLM (Anthropic); no further logs until the response returns "
+        "(often ~1-6+ minutes).",
+        flush=True,
+    )
+    t0 = time.perf_counter()
     response = llm.invoke(messages)
+    print(f"[registration] LLM round-trip took {time.perf_counter() - t0:.1f}s", flush=True)
     raw_text: str = anthropic_text(response)
 
     new_files = _parse_json_response(raw_text)
@@ -87,7 +95,7 @@ def registration_node(state: AgentState) -> dict[str, Any]:
     patch_key = next((k for k in new_files if k.startswith("patch_")), None)
     registration_code = new_files.get(patch_key, "") if patch_key else ""
 
-    print(f"[registration] Generated registration files: {list(new_files.keys())}")
+    print(f"[registration] Generated registration files: {list(new_files.keys())}", flush=True)
 
     return {
         "generated_files": merged,
