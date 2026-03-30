@@ -25,8 +25,15 @@ class AgentState(TypedDict, total=False):
     # validation_agent populates
     validation_result: dict     # {passed: bool, errors: list[str]}
 
-    # nxdi_port node (after validation if passed)
+    # nxdi_port node (after validation if passed; TRAINIUM_SKILL_MODE=fast)
     nxdi_result: dict           # {skipped, reason?, written_files?, filenames?}
+
+    # Trainium full skill chain (TRAINIUM_SKILL_MODE=full, default)
+    trainium_plan: dict         # Phase 1 JSON (architecture inventory, partitions, etc.)
+    trainium_block_files: dict  # {relative_path: content} from Phase 2 LLM
+    trainium_test_report: dict  # pytest rc / stdout or skip reason
+    trainium_integrate_result: dict  # {written_files, filenames, skipped?}
+    trainium_weight_result: dict     # {written_files, filenames, skipped?}
 
     # Shared conversation/debug log
     messages: list

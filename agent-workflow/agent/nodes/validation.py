@@ -45,6 +45,30 @@ def _calibrate_forbidden_import_message(filename: str, source: str) -> str | Non
     return None
 
 
+def _forbidden_cuda_message(filename: str, source: str) -> str | None:
+    """
+    Trainium / CPU-safe calibration: no .cuda() or torch.cuda.* in training wrappers
+    and entry scripts.
+    """
+    if not filename.endswith(".py"):
+        return None
+    is_utils = filename.endswith("_utils.py")
+    is_patch = filename.startswith("patch_")
+    is_calibrate = filename.startswith("calibrate_")
+    if not (is_utils or is_patch or is_calibrate):
+        return None
+    if re.search(r"\.cuda\s*\(", source):
+        return (
+            "Static check: do not use .cuda(); use flatquant.utils.DEV and .to(DEV) "
+            "for buffers (Trainium has no CUDA). Import: from flatquant.utils import DEV."
+        )
+    if re.search(r"\btorch\.cuda\.", source):
+        return (
+            "Static check: do not use torch.cuda.*; use flatquant.utils.DEV for device placement."
+        )
+    return None
+
+
 def _utils_attention_num_heads_message(filename: str, source: str) -> str | None:
     """Llama-style FlatQuant attention must use config.num_attention_heads in add_fq_trans."""
     if not (filename.endswith("_utils.py") and "add_fq_trans" in source):
@@ -188,6 +212,11 @@ def validation_node(state: AgentState) -> dict[str, Any]:
         bad_heads = _utils_attention_num_heads_message(filename, source_code)
         if bad_heads:
             import_errors[filename] = bad_heads
+            continue
+
+        bad_cuda = _forbidden_cuda_message(filename, source_code)
+        if bad_cuda:
+            import_errors[filename] = bad_cuda
             continue
 
         bad_quant = _quant_config_get_quantization_args_message(filename, source_code)

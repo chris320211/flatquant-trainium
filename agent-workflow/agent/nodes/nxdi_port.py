@@ -8,49 +8,21 @@ from the repo and generates `nxdi/*` files under the model output directory.
 import json
 import re
 import time
-from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from llm import anthropic_text, get_codegen_llm
 from prompts import NXDI_PORT_PROMPT
+from skill_loader import load_skill_markdown
 from state import AgentState
 from tools import write_output_files
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_SKILL_DIR = _REPO_ROOT / ".claude" / "skills" / "trainium-model-translation"
-_SKILL_MD = _SKILL_DIR / "SKILL.md"
-_LEGACY_FLAT_SKILL = _REPO_ROOT / ".claude" / "skills" / "trainium-model-translation.md"
 
 
 def _model_slug(model_name: str) -> str:
     base = model_name.split("/")[-1]
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", base).lower().strip("_")
     return slug
-
-
-def _load_trainium_skill_text() -> str:
-    for path in (_SKILL_MD, _LEGACY_FLAT_SKILL):
-        try:
-            body = path.read_text()
-            break
-        except OSError:
-            pass
-    else:
-        return (
-            f"(Skill not found. Expected {_SKILL_MD} "
-            f"or legacy {_LEGACY_FLAT_SKILL}.)"
-        )
-
-    extra = (
-        "\n\n--- Bundled resources (same skill directory; read on disk when needed) ---\n"
-        "- reference/vlm_translation.md\n"
-        "- reference/scaffolding_integration.md\n"
-        "- reference/weight_mapping.md\n"
-        "- scripts/block_testing_utils.py\n"
-    )
-    return body + extra
 
 
 def _parse_nxdi_json(raw_text: str) -> dict[str, str]:
@@ -102,7 +74,7 @@ def nxdi_port_node(state: AgentState) -> dict[str, Any]:
     utils_key = f"{slug}_utils.py"
     utils_src = generated_files.get(utils_key, "")
 
-    skill_text = _load_trainium_skill_text()
+    skill_text = load_skill_markdown()
     system_prompt = NXDI_PORT_PROMPT.replace("{slug}", slug)
 
     user_message = (

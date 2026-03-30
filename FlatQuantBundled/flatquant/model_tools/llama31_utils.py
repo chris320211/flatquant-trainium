@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from flatquant.quant_utils import ActivationQuantizer
-from flatquant.utils import skip_initialization
+from flatquant.utils import DEV, skip_initialization
 from flatquant.function_utils import get_init_scale, get_decompose_dim
 from flatquant.trans_utils import SVDSingleTransMatrix, SVDDecomposeTransMatrix
 from flatquant.trans_utils import InvSingleTransMatrix, InvDecomposeTransMatrix
@@ -26,8 +26,8 @@ class FlatQuantLlamaMLP(LlamaMLP):
         self._ori_mode = False
         self.diag_init = args.diag_init
         if self.diag_init == "sq_style":
-            self.up_smax = torch.ones_like(self.up_proj.linear.weight.abs().max(dim=0)[0]).cuda() * 1e-5
-            self.down_smax = torch.ones_like(self.down_proj.linear.weight.abs().max(dim=0)[0]).cuda() * 1e-5
+            self.up_smax = torch.ones_like(self.up_proj.linear.weight.abs().max(dim=0)[0]).to(DEV) * 1e-5
+            self.down_smax = torch.ones_like(self.down_proj.linear.weight.abs().max(dim=0)[0]).to(DEV) * 1e-5
         
     def add_fq_trans(self):
         if self.args.direct_inv:
@@ -132,7 +132,7 @@ class FlatQuantLlamaAttention(LlamaAttention):
         self._eval_mode = False
         self.diag_init = args.diag_init
         if self.diag_init == "sq_style":
-            self.ln_smax = torch.ones_like(self.q_proj.linear.weight.abs().max(dim=0)[0]).cuda() * 1e-5
+            self.ln_smax = torch.ones_like(self.q_proj.linear.weight.abs().max(dim=0)[0]).to(DEV) * 1e-5
 
     def add_fq_trans(self):
         if self.args.direct_inv:

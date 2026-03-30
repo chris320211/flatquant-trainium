@@ -1,9 +1,13 @@
 """
 FlatQuant Porting Agent — entry point.
 
-Pipeline: arch → ref_reader → codegen → registration → validation; if validation
-passes, nxdi_port generates `nxdi/*` scaffolding under outputs/<model>/ using
-`.claude/skills/trainium-model-translation/SKILL.md` as the NxDI workflow reference.
+Pipeline: arch → ref_reader → codegen → registration → validation; if validation passes:
+  - TRAINIUM_SKILL_MODE=full (default): trainium_plan → trainium_blocks →
+    trainium_block_tests → trainium_integrate → trainium_weight_map (NxDI skill phases 1–4).
+  - TRAINIUM_SKILL_MODE=fast: single nxdi_port node (legacy one-shot scaffolding).
+
+Env:
+  TRAINIUM_RUN_BLOCK_TESTS=1 — run pytest in the output dir after Phase 2 (optional).
 
 Usage:
     python main.py mistralai/Mistral-7B-v0.1
@@ -75,18 +79,49 @@ def main() -> None:
         print(f"  {fname} → {fpath}")
 
     vr_passed = (final_state.get("validation_result") or {}).get("passed")
-    nxdi = final_state.get("nxdi_result") or {}
-    print("\n=== NxDI porting ===")
+    _mode = os.environ.get("TRAINIUM_SKILL_MODE", "full").lower().strip()
+    print("\n=== Trainium / NxDI ===")
     if not vr_passed:
         print("  Not run (validation did not pass).")
-    elif nxdi.get("skipped"):
-        print(f"  Skipped: {nxdi.get('reason', 'unknown')}")
-    elif nxdi.get("written_files"):
-        print("  Scaffolding written under outputs/.../nxdi/:")
-        for fname, fpath in nxdi["written_files"].items():
-            print(f"  {fname} → {fpath}")
+    elif _mode == "fast":
+        nxdi = final_state.get("nxdi_result") or {}
+        if nxdi.get("skipped"):
+            print(f"  fast mode skipped: {nxdi.get('reason', 'unknown')}")
+        elif nxdi.get("written_files"):
+            print("  nxdi_port (fast) wrote:")
+            for fname, fpath in nxdi["written_files"].items():
+                print(f"    {fname} → {fpath}")
+        else:
+            print("  (no nxdi artifacts recorded)")
     else:
-        print("  (no nxdi artifacts recorded)")
+        plan = final_state.get("trainium_plan") or {}
+        if plan.get("skipped"):
+            print(f"  Plan skipped: {plan.get('reason')}")
+        else:
+            print(
+                f"  Phase 1 plan keys: {list(plan.keys())[:12]}"
+                f"{'...' if len(plan) > 12 else ''}"
+            )
+        blocks = final_state.get("trainium_block_files") or {}
+        print(f"  Phase 2 block files: {len(blocks)} path(s)")
+        trep = final_state.get("trainium_test_report") or {}
+        if trep.get("skipped"):
+            print(f"  Phase 2 tests: skipped — {trep.get('reason', 'unknown')}")
+        else:
+            print(
+                f"  Phase 2 tests: rc={trep.get('returncode')} "
+                f"(TRAINIUM_RUN_BLOCK_TESTS)"
+            )
+        integ = final_state.get("trainium_integrate_result") or {}
+        if integ.get("written_files"):
+            print("  Phase 3 integrate wrote:")
+            for fname, fpath in integ["written_files"].items():
+                print(f"    {fname} → {fpath}")
+        wres = final_state.get("trainium_weight_result") or {}
+        if wres.get("written_files"):
+            print("  Phase 4 weight map wrote:")
+            for fname, fpath in wres["written_files"].items():
+                print(f"    {fname} → {fpath}")
 
     # Print the LLM validation summary from the message log.
     messages = final_state.get("messages", [])
