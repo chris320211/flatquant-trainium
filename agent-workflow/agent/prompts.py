@@ -61,6 +61,7 @@ Generate the following files as a JSON object {filename: source_code}:
 
 2. `calibrate_{slug}.py` — Calibration entry script:
    - Adapted from FlatQuant/main.py (see canonical_flatquant_main_snippet in the user message)
+   - **CLI:** Either delegate to `flatquant.args_utils.create_parser()` / same flags as FlatQuantBundled `main.py`, OR document a minimal set — the agent may run this script with `--quantize`, `--w_bits`, `--a_bits`, `--cali_trans`, `--cali_dataset`, `--nsamples`, `--cali_bsz`, `--epochs` (do not omit commonly needed flags if you use a custom ArgumentParser).
    - Uses the model-specific layer accessor (from ref_patterns.layer_accessor)
    - Uses FP8 dtype (torch.float8_e4m3fn) and PyTorch kernels
    - Calls `apply_flatquant_to_{slug}` and then `cali_flat_quant` from **flatquant.train_utils**

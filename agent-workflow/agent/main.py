@@ -91,6 +91,12 @@ def main() -> None:
         print(f"  returncode={cal.get('returncode')} mode={cal.get('mode')}")
         if cal.get("stderr_tail"):
             print(f"  stderr (tail):\n{cal['stderr_tail'][-2000:]}")
+        if cal.get("returncode") not in (0, None):
+            print(
+                "\n  *** PIPELINE NOTE: Calibration did not succeed (rc != 0). "
+                "Static validation may still show \"passed\" — that only checks generated files, "
+                "not calibration. Run calibrate_*.py manually with `python ... --help` flags. ***"
+            )
 
     vr_passed = (final_state.get("validation_result") or {}).get("passed")
     _mode = os.environ.get("TRAINIUM_SKILL_MODE", "full").lower().strip()

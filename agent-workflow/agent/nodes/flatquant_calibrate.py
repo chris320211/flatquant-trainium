@@ -69,14 +69,15 @@ def flatquant_calibrate_node(state: AgentState) -> dict[str, Any]:
     model_path = os.environ.get("FLATQUANT_CALIBRATE_MODEL", "").strip() or model_name
     hf_token = os.environ.get("HF_TOKEN", "").strip()
 
+    # Must match flags defined on generated calibrate_{slug}.py (often a subset of
+    # flatquant.args_utils — no --w_groupsize / --output_dir / --exp_name unless codegen adds them).
     if mode == "smoke":
         extra = [
+            "--quantize",
             "--w_bits",
             "4",
             "--a_bits",
             "16",
-            "--w_groupsize",
-            "128",
             "--cali_dataset",
             "wikitext2",
             "--nsamples",
@@ -86,20 +87,15 @@ def flatquant_calibrate_node(state: AgentState) -> dict[str, Any]:
             "--cali_trans",
             "--epochs",
             "2",
-            "--output_dir",
-            "./cali_out",
-            "--exp_name",
-            "agent_smoke",
         ]
         timeout = int(os.environ.get("FLATQUANT_CALIBRATE_TIMEOUT_SMOKE_S", "7200"))
     else:
         extra = [
+            "--quantize",
             "--w_bits",
             "4",
             "--a_bits",
             "16",
-            "--w_groupsize",
-            "128",
             "--cali_dataset",
             "wikitext2",
             "--nsamples",
@@ -109,10 +105,6 @@ def flatquant_calibrate_node(state: AgentState) -> dict[str, Any]:
             "--cali_trans",
             "--epochs",
             "15",
-            "--output_dir",
-            "./cali_out",
-            "--exp_name",
-            "agent_full",
         ]
         timeout = int(os.environ.get("FLATQUANT_CALIBRATE_TIMEOUT_FULL_S", "86400"))
 
