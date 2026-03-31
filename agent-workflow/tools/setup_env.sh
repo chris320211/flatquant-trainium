@@ -1,11 +1,15 @@
 #!/bin/bash
 # Setup Python paths for FlatQuantBundled module
 # Run this before executing unified pipeline scripts
-# This script is located at: agent-workflow/tools/setup_env.sh
-# We need to go up 3 levels to reach the repo root
 
-cd "$(dirname "$0")"
-REPO_ROOT="$(pwd)/../../.."
+# Get script directory using parameter expansion (works everywhere)
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+SCRIPT_DIR="${SCRIPT_PATH%/*}"
+
+# Go to script directory and calculate repo root
+cd "$SCRIPT_DIR" || exit 1
+cd ../.. || exit 1
+REPO_ROOT="$(pwd)"
 
 export PYTHONPATH="${REPO_ROOT}/FlatQuantBundled:$PYTHONPATH"
 
