@@ -7,8 +7,12 @@
 # Use parameter expansion to avoid dirname issues
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 SCRIPT_DIR="${SCRIPT_PATH%/*}"
-cd "$SCRIPT_DIR" || exit 1
-REPO_ROOT="$(pwd)/../../.."
+# Get absolute path without changing directories
+if [[ "$SCRIPT_DIR" = /* ]]; then
+  REPO_ROOT="$SCRIPT_DIR/../../.."
+else
+  REPO_ROOT="$(cd "$SCRIPT_DIR" && pwd)/../../.."
+fi
 
 export PYTHONPATH="${REPO_ROOT}/FlatQuantBundled:${SCRIPT_DIR}:$PYTHONPATH"
 
