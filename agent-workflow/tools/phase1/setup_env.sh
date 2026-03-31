@@ -4,12 +4,15 @@
 
 export PYTHONPATH=/home/ubuntu/flatquant-trainium/FlatQuantBundled:$PYTHONPATH
 
-# NOTE: Do NOT add FlatQuantBundled/deploy to PYTHONPATH
-# It contains a deploy/transformers/ dir that shadows the real transformers module
-# Instead, import deploy from FlatQuantBundled directly
+# CRITICAL: Do NOT verify deploy import here
+# FlatQuantBundled/deploy/transformers/ shadows the real transformers module
+# The Python scripts will import things in the correct order:
+# 1. transformers (real module) - imported FIRST
+# 2. flatquant - from FlatQuantBundled
+# 3. deploy - from FlatQuantBundled, but AFTER transformers is loaded
 
-# Verify modules are importable
+# Verify only flatquant
 python3 -c "import flatquant; print('✓ flatquant imported')" || exit 1
-python3 -c "from flatquant import deploy; print('✓ deploy imported')" || exit 1
 
-echo "✓ All paths configured"
+echo "✓ PYTHONPATH configured: /home/ubuntu/flatquant-trainium/FlatQuantBundled"
+echo "✓ Ready to run calibration scripts"

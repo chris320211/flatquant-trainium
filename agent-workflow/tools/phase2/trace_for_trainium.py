@@ -17,12 +17,12 @@ import torch
 from pathlib import Path
 from typing import Optional
 
-# CRITICAL: Import transformers BEFORE adding FlatQuantBundled to path
+# CRITICAL: Import transformers FIRST, before any FlatQuantBundled modules
+# This prevents FlatQuantBundled/deploy/transformers from shadowing the real one
 from transformers import AutoModelForCausalLM
 
-# Setup paths
-sys.path.insert(0, str(Path(__file__).parent))
-sys.path.insert(0, '/home/ubuntu/flatquant-trainium/FlatQuantBundled')
+# NOTE: FlatQuantBundled should already be in PYTHONPATH from setup_env.sh
+# DO NOT add it again to sys.path - that will cause the shadowing issue
 
 
 def trace_model_for_trainium(
