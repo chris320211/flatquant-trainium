@@ -203,18 +203,26 @@ def run_inference(model_path: str, prompt: str = None, max_tokens: int = 50) -> 
         with torch.no_grad():
             # Simple greedy generation
             output_ids = input_ids
-            for _ in range(max_tokens):
+            for step in range(max_tokens):
                 outputs = model(output_ids)
 
-                # Handle both tuple output (from HuggingFace) and tensor output
-                if isinstance(outputs, tuple):
-                    logits = outputs[0]  # Extract logits from tuple
+                # Extract logits from model output
+                if hasattr(outputs, 'logits'):
+                    # CausalLM output object
+                    logits = outputs.logits
+                elif isinstance(outputs, tuple):
+                    # Tuple output
+                    logits = outputs[0]
                 else:
-                    logits = outputs  # Direct tensor output
+                    # Direct tensor
+                    logits = outputs
 
                 # Get next token (last position, argmax over vocab)
                 next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
                 output_ids = torch.cat([output_ids, next_token], dim=1)
+
+                if step % 10 == 0:
+                    print(f"  Generated {step}/{max_tokens} tokens")
 
         # Decode
         generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
