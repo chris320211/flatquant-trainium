@@ -204,8 +204,16 @@ def run_inference(model_path: str, prompt: str = None, max_tokens: int = 50) -> 
             # Simple greedy generation
             output_ids = input_ids
             for _ in range(max_tokens):
-                logits = model(output_ids)
-                next_token = logits[0, -1, :].argmax(dim=-1, keepdim=True)
+                outputs = model(output_ids)
+
+                # Handle both tuple output (from HuggingFace) and tensor output
+                if isinstance(outputs, tuple):
+                    logits = outputs[0]  # Extract logits from tuple
+                else:
+                    logits = outputs  # Direct tensor output
+
+                # Get next token (last position, argmax over vocab)
+                next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
                 output_ids = torch.cat([output_ids, next_token], dim=1)
 
         # Decode
