@@ -216,7 +216,6 @@ class TrainiumUnifiedPipeline:
                 args=None,
                 name=dataset_name,
                 nsamples=num_samples,
-                seed=0,
                 seqlen=self.model.seqlen,
                 eval_mode=False,
             )
@@ -372,7 +371,7 @@ class TrainiumUnifiedPipeline:
             compiler_workdir = "./compiler_workdir/"
             Path(compiler_workdir).mkdir(parents=True, exist_ok=True)
 
-            traced_model = torch.neuron.trace(
+            traced_model = torch_neuronx.neuron.trace(
                 self.model,
                 example_input,
                 compiler_workdir=compiler_workdir,
@@ -426,7 +425,14 @@ class TrainiumUnifiedPipeline:
 
                 for step in range(max_tokens):
                     # Forward pass on Trainium2
-                    outputs = traced_model(output_ids)
+                    # Pass with proper argument names to match transformer model signature
+                    outputs = traced_model(
+                        input_ids=output_ids,
+                        attention_mask=None,
+                        past_key_value=None,
+                        output_attentions=False,
+                        use_cache=False,
+                    )
 
                     # Extract logits
                     if hasattr(outputs, 'logits'):
@@ -479,7 +485,13 @@ class TrainiumUnifiedPipeline:
             for i in range(3):
                 with torch.no_grad():
                     input_ids = torch.randint(0, 32000, (1, sequence_length), dtype=torch.long)
-                    _ = traced_model(input_ids)
+                    _ = traced_model(
+                        input_ids=input_ids,
+                        attention_mask=None,
+                        past_key_value=None,
+                        output_attentions=False,
+                        use_cache=False,
+                    )
                 print(f"  Warmup {i+1}/3 complete")
 
             # Benchmark
@@ -491,7 +503,13 @@ class TrainiumUnifiedPipeline:
                     input_ids = torch.randint(0, 32000, (1, sequence_length), dtype=torch.long)
 
                     start = time.perf_counter()
-                    output = traced_model(input_ids)
+                    output = traced_model(
+                        input_ids=input_ids,
+                        attention_mask=None,
+                        past_key_value=None,
+                        output_attentions=False,
+                        use_cache=False,
+                    )
                     elapsed = time.perf_counter() - start
 
                     times.append(elapsed)
