@@ -3,7 +3,8 @@
 # Sources the setup_env.sh from phase1 to configure PYTHONPATH
 
 # Get directory of this script and phase1 directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+SCRIPT_DIR="${SCRIPT_PATH%/*}"
 PHASE1_DIR="$SCRIPT_DIR/../phase1"
 
 # Source phase1's setup script
