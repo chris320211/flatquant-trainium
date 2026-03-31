@@ -152,34 +152,104 @@ class FlatQuantCalibrator:
                 print(f"Calibration failed: {e}")
 
     def save_model(self, output_path: str):
-        """Save quantized model"""
+        """
+        Save quantized model WITHOUT reparameterization.
+
+        Key difference: Transform matrices T are preserved as Parameters
+        instead of being fused into weights. This allows explicit T operations
+        to appear in the computation graph during Trainium tracing.
+        """
         print(f"Saving quantized model to: {output_path}")
 
-        # Reparameterize to apply quantization
-        print("Reparameterizing wrapped layers...")
+        # Step 1: Set evaluation mode on all layers
+        # This freezes transforms and enables explicit T + quantization in forward
+        print("Setting evaluation mode (keeping transforms explicit)...")
         num_layers = self.model.config.num_hidden_layers
         for layer_idx in range(num_layers):
             layer = self.model.model.layers[layer_idx]
-            try:
-                # Call reparameterize on wrapped attention
-                if hasattr(layer.self_attn, 'reparameterize'):
-                    layer.self_attn.reparameterize()
-            except Exception as e:
-                print(f"  Layer {layer_idx}: attention reparameterize failed - {e}")
 
-            try:
-                # Call reparameterize on wrapped MLP
-                if hasattr(layer.mlp, 'reparameterize'):
-                    layer.mlp.reparameterize()
-            except Exception as e:
-                print(f"  Layer {layer_idx}: MLP reparameterize failed - {e}")
+            # Set eval mode on attention
+            if hasattr(layer.self_attn, '_eval_mode'):
+                layer.self_attn._eval_mode = True
+                if hasattr(layer.self_attn, 'ln_trans') and layer.self_attn.ln_trans is not None:
+                    layer.self_attn.ln_trans.to_eval_mode()
+                if hasattr(layer.self_attn, 'o_trans') and layer.self_attn.o_trans is not None:
+                    layer.self_attn.o_trans.to_eval_mode()
+                if hasattr(layer.self_attn, 'kcache_trans') and layer.self_attn.kcache_trans is not None:
+                    layer.self_attn.kcache_trans.to_eval_mode()
+                if hasattr(layer.self_attn, 'vcache_trans') and layer.self_attn.vcache_trans is not None:
+                    layer.self_attn.vcache_trans.to_eval_mode()
 
-        print("✓ Reparameterization complete")
+            # Set eval mode on MLP
+            if hasattr(layer.mlp, '_ori_mode'):
+                layer.mlp._ori_mode = False  # Use trans_forward, not ori_forward
+            if hasattr(layer.mlp, 'up_gate_trans') and layer.mlp.up_gate_trans is not None:
+                layer.mlp.up_gate_trans.to_eval_mode()
+            if hasattr(layer.mlp, 'down_trans') and layer.mlp.down_trans is not None:
+                layer.mlp.down_trans.to_eval_mode()
 
-        # Save
+        print("✓ Evaluation mode set (transforms will be explicit in graph)")
+
+        # Step 2: Also set eval mode on FlatQuantizedLinear layers
+        # This makes their forward use _eval_forward with explicit quantization
+        print("Setting FlatQuantizedLinear to evaluation mode...")
+        for layer_idx in range(num_layers):
+            layer = self.model.model.layers[layer_idx]
+
+            # Attention projections
+            for proj_name in ['q_proj', 'k_proj', 'v_proj', 'o_proj']:
+                if hasattr(layer.self_attn, proj_name):
+                    proj = getattr(layer.self_attn, proj_name)
+                    if hasattr(proj, '_eval_mode'):
+                        proj._eval_mode = True
+
+            # MLP projections
+            for proj_name in ['up_proj', 'gate_proj', 'down_proj']:
+                if hasattr(layer.mlp, proj_name):
+                    proj = getattr(layer.mlp, proj_name)
+                    if hasattr(proj, '_eval_mode'):
+                        proj._eval_mode = True
+
+        print("✓ FlatQuantizedLinear in eval mode")
+
+        # Step 3: Save model (with T as Parameters, not fused)
+        print("Saving model checkpoint...")
+        Path(output_path).mkdir(parents=True, exist_ok=True)
         self.model.save_pretrained(output_path)
         self.tokenizer.save_pretrained(output_path)
         print(f"✓ Model saved to {output_path}")
+
+        # Step 4: Save quantization config
+        print("Saving quantization config...")
+        quant_config = {
+            "w_bits": self.args.w_bits,
+            "a_bits": self.args.a_bits,
+            "group_size": self.args.group_size,
+            "w_asym": self.args.w_asym,
+            "a_asym": self.args.a_asym,
+            "a_groupsize": self.args.a_groupsize,
+            "lwc": self.args.lwc,
+            "q_bits": self.args.q_bits,
+            "k_bits": self.args.k_bits,
+            "v_bits": self.args.v_bits,
+            "model_type": "llama",
+            "strategy": "option2_explicit_transforms",
+        }
+
+        import json
+        config_path = Path(output_path) / "quant_config.json"
+        with open(config_path, "w") as f:
+            json.dump(quant_config, f, indent=2)
+        print(f"✓ Quant config saved to {config_path}")
+
+        print("\n" + "=" * 60)
+        print("✓ Phase 1 Save Complete!")
+        print(f"  Location: {output_path}")
+        print(f"  Strategy: Option 2 - Explicit Transforms (NO reparameterization)")
+        print(f"  Weights: Preserved in original size (not fused with T)")
+        print(f"  Transforms: Saved as Parameters (will be in graph)")
+        print(f"  Next step: Run Phase 2 Trainium inference")
+        print("=" * 60)
 
 
 def main():
