@@ -6,6 +6,7 @@ actual model weights.
 """
 
 import json
+import os
 import re
 import time
 from typing import Any
@@ -29,6 +30,19 @@ def trainium_weight_tests_node(state: AgentState) -> dict[str, Any]:
     """Generate weight mapping validation tests."""
     model_name: str = state["model_name"]
     slug = _model_slug(model_name)
+
+    # Check if test generation is disabled
+    skip_tests = os.environ.get("TRAINIUM_SKIP_TEST_GENERATION", "").lower().strip() in ("1", "true", "yes")
+    if skip_tests:
+        print("[trainium_weight_tests] Skipped (TRAINIUM_SKIP_TEST_GENERATION=1).", flush=True)
+        return {
+            "trainium_weight_tests_result": {
+                "skipped": True,
+                "reason": "test_generation_disabled",
+            },
+            "messages": state.get("messages", [])
+            + [{"role": "assistant", "content": "[trainium_weight_tests] Skipped."}],
+        }
 
     weight_result = state.get("trainium_weight_result") or {}
     if weight_result.get("skipped"):
