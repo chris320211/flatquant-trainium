@@ -73,10 +73,14 @@ class FlatQuantCalibrator:
             w_bits = 4
             a_bits = 8
             group_size = 128
+            w_asym = False  # Symmetric weight quantization
+            a_asym = False  # Symmetric activation quantization
+            a_groupsize = 128  # Activation group size for quantization
+            lwc = False  # Learned weight clipping
             direct_inv = False
             add_diag = False
             diag_init = "sq_style"
-            lac = False
+            lac = False  # Learned activation clipping
 
         args = FlatQuantArgs()
 
