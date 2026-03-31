@@ -49,31 +49,29 @@ def dequantize_flatquant_model(quantized_path: str, output_path: str) -> bool:
         )
         print(f"✓ Quantized model loaded: {type(model_quantized).__name__}")
 
-        # Step 2: Extract state dict and convert to BF16
-        print("\n[2/3] Converting weights to BF16...")
-        state_dict = model_quantized.state_dict()
+        # Step 2: Dequantize INT4 weights using wrapper methods
+        print("\n[2/3] Dequantizing INT4 weights to FP32...")
+        num_layers = model_quantized.config.num_hidden_layers
+        for layer_idx in range(num_layers):
+            layer = model_quantized.model.layers[layer_idx]
 
-        # Convert all weights to BF16
-        state_dict_bf16 = {}
-        for key, tensor in state_dict.items():
-            if isinstance(tensor, torch.Tensor):
-                state_dict_bf16[key] = tensor.to(torch.bfloat16)
-            else:
-                state_dict_bf16[key] = tensor
+            # Dequantize attention layer
+            if hasattr(layer.self_attn, 'dequantize'):
+                layer.self_attn.dequantize()
+                if layer_idx % 5 == 0:
+                    print(f"  ✓ Dequantized layer {layer_idx} attention")
 
-        print(f"✓ Converted {len(state_dict_bf16)} tensors to BF16")
+            # Dequantize MLP layer
+            if hasattr(layer.mlp, 'dequantize'):
+                layer.mlp.dequantize()
 
-        # Step 3: Create and load standard BF16 model
-        print("\n[3/3] Creating standard BF16 model...")
-        model_bf16 = AutoModelForCausalLM.from_pretrained(
-            "meta-llama/Llama-2-7b-hf",
-            torch_dtype=torch.bfloat16,
-            device_map="cpu"
-        )
+        print(f"✓ Dequantized all {num_layers} layers")
 
-        # Load converted weights
-        model_bf16.load_state_dict(state_dict_bf16, strict=False)
-        print(f"✓ BF16 model created and weights loaded")
+        # Step 3: Convert to BF16 and save
+        print("\n[3/3] Converting to BF16 for Trainium2...")
+        model_quantized.to(torch.bfloat16)
+        model_bf16 = model_quantized
+        print(f"✓ Model converted to BF16")
 
         # Step 4: Save BF16 model
         print(f"\nSaving BF16 model to {output_path}")
