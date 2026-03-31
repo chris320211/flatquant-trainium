@@ -74,10 +74,21 @@ class FlatQuantCalibrator:
             w_bits = 4
             a_bits = 8
             group_size = 128
+            w_asym = False  # Symmetric weight quantization
+            a_asym = False  # Symmetric activation quantization
+            a_groupsize = -1  # -1 = per-layer quantization (groupsize>0 not yet supported)
+            lwc = False  # Learned weight clipping
             direct_inv = False
             add_diag = False
             diag_init = "sq_style"
-            lac = False
+            lac = False  # Learned activation clipping
+            separate_vtrans = True  # For attention v_proj handling
+            q_bits = 8  # KV cache quantization bits
+            k_bits = 8
+            v_bits = 8
+            q_asym = False
+            k_asym = False
+            v_asym = False
 
         args = FlatQuantArgs()
 
@@ -146,11 +157,25 @@ class FlatQuantCalibrator:
         print(f"Saving quantized model to: {output_path}")
 
         # Reparameterize to apply quantization
-        try:
-            flat_utils.reparameterize_model(self.model)
-            print("✓ Model reparameterized")
-        except Exception as e:
-            print(f"Warning: Reparameterization failed: {e}")
+        print("Reparameterizing wrapped layers...")
+        num_layers = self.model.config.num_hidden_layers
+        for layer_idx in range(num_layers):
+            layer = self.model.model.layers[layer_idx]
+            try:
+                # Call reparameterize on wrapped attention
+                if hasattr(layer.self_attn, 'reparameterize'):
+                    layer.self_attn.reparameterize()
+            except Exception as e:
+                print(f"  Layer {layer_idx}: attention reparameterize failed - {e}")
+
+            try:
+                # Call reparameterize on wrapped MLP
+                if hasattr(layer.mlp, 'reparameterize'):
+                    layer.mlp.reparameterize()
+            except Exception as e:
+                print(f"  Layer {layer_idx}: MLP reparameterize failed - {e}")
+
+        print("✓ Reparameterization complete")
 
         # Save
         self.model.save_pretrained(output_path)
