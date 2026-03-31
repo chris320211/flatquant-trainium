@@ -10,7 +10,8 @@
       "Bash(git add:*)",
       "Bash(git rev-parse:*)",
       "Bash(xargs ls:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
