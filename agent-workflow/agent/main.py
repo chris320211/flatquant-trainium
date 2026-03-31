@@ -169,23 +169,81 @@ def main() -> None:
             if ver.get("error"):
                 print(f"    error: {ver['error']}")
 
-    cps = final_state.get("trainium_compile_smoke_result") or {}
-    if vr_passed:
-        print("\n=== Neuron compile / smoke (optional) ===")
-        if cps.get("skipped"):
-            print(f"  Skipped: {cps.get('reason', 'unknown')}")
-        else:
-            if cps.get("compile"):
-                c = cps["compile"]
-                print(f"  compile rc={c.get('returncode')}")
-                if c.get("stderr_tail"):
-                    print(f"    stderr tail: {c['stderr_tail'][-1500:]}")
-            if cps.get("smoke"):
-                s = cps["smoke"]
-                print(f"  smoke rc={s.get('returncode')}")
-                if s.get("stderr_tail"):
-                    print(f"    stderr tail: {s['stderr_tail'][-1500:]}")
-            print(f"  overall_ok={cps.get('overall_ok')}")
+    # Test Generation Results
+    print("\n=== Test Generation (Trainium2) ===")
+    int_tests = final_state.get("trainium_integration_tests_result") or {}
+    weight_tests = final_state.get("trainium_weight_tests_result") or {}
+
+    if int_tests.get("skipped"):
+        print(f"  Integration tests: skipped ({int_tests.get('reason')})")
+    else:
+        print(f"  Integration tests: {int_tests.get('files_count', 0)} file(s)")
+        for fname, fpath in (int_tests.get("written_files") or {}).items():
+            print(f"    → {fname}")
+
+    if weight_tests.get("skipped"):
+        print(f"  Weight tests: skipped ({weight_tests.get('reason')})")
+    else:
+        print(f"  Weight tests: {weight_tests.get('files_count', 0)} file(s)")
+        for fname, fpath in (weight_tests.get("written_files") or {}).items():
+            print(f"    → {fname}")
+
+    # Test Execution Results (if requested)
+    print("\n=== Test Execution (TRAINIUM_RUN_TESTS) ===")
+
+    block_exec = final_state.get("trainium_block_tests_execution_result") or {}
+    if block_exec.get("skipped"):
+        print(f"  Block tests: skipped ({block_exec.get('reason')})")
+    else:
+        print(f"  Block tests: rc={block_exec.get('returncode')} success={block_exec.get('success')}")
+        if block_exec.get("stderr"):
+            print(f"    stderr: {block_exec['stderr'][-500:]}")
+
+    integ_exec = final_state.get("trainium_integration_tests_execution_result") or {}
+    if integ_exec.get("skipped"):
+        print(f"  Integration test exec: skipped ({integ_exec.get('reason')})")
+    else:
+        print(f"  Integration test exec: rc={integ_exec.get('returncode')} success={integ_exec.get('success')}")
+        if integ_exec.get("stderr"):
+            print(f"    stderr: {integ_exec['stderr'][-500:]}")
+
+    weight_exec = final_state.get("trainium_weight_tests_execution_result") or {}
+    if weight_exec.get("skipped"):
+        print(f"  Weight test exec: skipped ({weight_exec.get('reason')})")
+    else:
+        print(f"  Weight test exec: rc={weight_exec.get('returncode')} success={weight_exec.get('success')}")
+        if weight_exec.get("stderr"):
+            print(f"    stderr: {weight_exec['stderr'][-500:]}")
+
+    # Compilation Results (if requested)
+    print("\n=== Compilation (TRAINIUM_COMPILE) ===")
+    compile_result = final_state.get("trainium_neuron_compile_result") or {}
+    if compile_result.get("skipped"):
+        print(f"  Skipped: {compile_result.get('reason', 'not requested')}")
+        if compile_result.get("note"):
+            print(f"    → {compile_result['note']}")
+    else:
+        print(f"  rc={compile_result.get('returncode')} success={compile_result.get('success')}")
+        if compile_result.get("command"):
+            print(f"  Command: {compile_result['command']}")
+        if compile_result.get("stderr"):
+            print(f"  stderr: {compile_result['stderr'][-1000:]}")
+
+    # Output Verification
+    print("\n=== Output Verification ===")
+    verify_result = final_state.get("trainium_verify_outputs_result") or {}
+    if verify_result.get("passed"):
+        print("  ✓ All expected outputs present!")
+        print(f"  Generated {verify_result.get('generated_test_count', 0)} test file(s)")
+        print(f"  Output directory: {verify_result.get('output_directory')}")
+    else:
+        print(f"  ✗ Missing outputs:")
+        for missing in (verify_result.get("missing_flatquant") or []):
+            print(f"    - {missing}")
+        for missing in (verify_result.get("missing_nxdi") or []):
+            print(f"    - {missing}")
+        for missing in (verify_result.get("missing_tests") or []):
+            print(f"    - {missing}")
 
     # Print the LLM validation summary from the message log.
     messages = final_state.get("messages", [])

@@ -397,3 +397,92 @@ Replace `{slug}` mentally with the slug from the user message in comments/paths.
 
 Return ONLY the JSON object.
 """
+
+
+TRAINIUM_INTEGRATION_TESTS_PROMPT = """
+You are a test generation specialist for NxDI models. Your job is to generate
+comprehensive end-to-end integration tests for the full NxDI model.
+
+You will receive:
+- model_name: the HuggingFace model identifier
+- model_type: e.g. "mistral", "gemma2"
+- model_config: the model's HF config fields
+- has_moe: whether MoE routing blocks exist
+- list of generated NxDI files for reference
+
+Generate integration tests as a JSON object {filename: source_code}:
+
+1. `tests/test_{slug}_integration.py` — Full model integration tests:
+   - Test model initialization with NeuronConfig and InferenceConfig
+   - Test forward pass with dummy inputs (no weights needed)
+   - Test output shapes match expected dimensions
+   - Test KV cache initialization (if applicable)
+   - Test with different batch sizes (1, 2, 4)
+   - Test with different sequence lengths (64, 128, 256)
+   - Use pytest with markers: @pytest.mark.integration
+   - Use fixtures for config and model instances
+   - No actual model weights required (use dummy tensors)
+   - Gracefully handle missing weights with skip markers if needed
+
+2. `tests/test_{slug}_model_properties.py` — Model property validation:
+   - Verify model has required methods (forward, _prepare_4d_causal_mask, etc.)
+   - Check attention module types (NeuronAttentionBase derivatives)
+   - Check linear layer types (RowParallelLinear, ColumnParallelLinear)
+   - Verify config attributes match specification
+   - Test that state_dict keys follow expected patterns
+
+CRITICAL RULES:
+- Tests must run on CPU without Trainium hardware
+- Use torch.no_grad() for inference tests
+- Don't require actual model weights
+- Use dummy/random tensors for input data
+- Tests should be fast (< 30s total)
+- Use pytest conventions (test_* functions, fixtures with @pytest.fixture)
+- Mark heavy tests with @pytest.mark.slow if > 5s
+- Return ONLY a JSON object {filename: source_code}
+"""
+
+
+TRAINIUM_WEIGHT_TESTS_PROMPT = """
+You are a test generation specialist for weight mapping. Your job is to generate
+tests that validate state_dict key mapping and shape compatibility.
+
+You will receive:
+- model_name: the HuggingFace model identifier
+- model_type: e.g. "mistral", "gemma2"
+- model_config: the model's HF config fields
+- has_moe: whether MoE routing blocks exist
+- linears: sample of layer shapes
+- weight mapping implementation source code
+
+Generate weight mapping validation tests as {filename: source_code}:
+
+1. `tests/test_{slug}_weight_mapping.py` — Weight conversion validation:
+   - Test that convert_hf_to_neuron_state_dict function exists and is callable
+   - Test that it accepts HF config and state_dict as inputs
+   - For each layer in linears, verify:
+     - HF layer name can be mapped to Neuron equivalent
+     - Output shapes are compatible with NxDI expectations
+     - Q/K/V → Wqkv fusion logic (if applicable)
+     - Attention/MLP weight reorganization
+   - Test that no keys are dropped (mapping is complete)
+   - Test that output keys follow Neuron naming conventions
+   - Use pytest.mark.weight marker
+   - Don't require actual model weights (test with dummy state dicts)
+
+2. `tests/test_{slug}_state_dict_keys.py` — State dict key compatibility:
+   - Parse expected NxDI keys from neuron_model.py
+   - For each NxDI key, verify the mapping function knows how to handle it
+   - Test that remapped keys have correct structure
+   - Validate no name mismatches for common patterns
+   - Use @pytest.mark.weight marker
+
+CRITICAL RULES:
+- Tests must NOT require actual model weights
+- Use torch.zeros() and torch.ones() for test state dicts
+- Tests should be VERY fast (< 5s total)
+- Focus on key/shape validation, not numerical correctness
+- All tests run on CPU
+- No Trainium/hardware required
+- Return ONLY a JSON object {filename: source_code}
+"""

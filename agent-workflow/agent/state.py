@@ -42,5 +42,14 @@ class AgentState(TypedDict, total=False):
     trainium_nxdi_verify: dict       # import neuronx_distributed + exec neuron_*_nxdi.py
     trainium_compile_smoke_result: dict  # optional TRAINIUM_COMPILE_CMD / SMOKE_CMD
 
+    # New test generation + execution nodes (Trainium2 optimized)
+    trainium_integration_tests_result: dict  # Phase 3.5: generate integration tests
+    trainium_weight_tests_result: dict       # Phase 4.5: generate weight mapping tests
+    trainium_block_tests_execution_result: dict  # Block test execution (gated by TRAINIUM_RUN_TESTS)
+    trainium_integration_tests_execution_result: dict  # Integration test execution
+    trainium_weight_tests_execution_result: dict  # Weight test execution
+    trainium_neuron_compile_result: dict  # Neuron compilation (gated by TRAINIUM_COMPILE)
+    trainium_verify_outputs_result: dict  # Final output verification
+
     # Shared conversation/debug log
     messages: list
