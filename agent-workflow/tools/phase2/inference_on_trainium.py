@@ -18,6 +18,12 @@ import time
 from pathlib import Path
 from typing import Dict, List
 
+# CRITICAL: Import transformers BEFORE adding FlatQuantBundled to path
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+# Setup paths
+sys.path.insert(0, '/home/ubuntu/flatquant-trainium/FlatQuantBundled')
+
 
 def benchmark_inference(
     model_path: str,
@@ -138,8 +144,6 @@ def run_inference(model_path: str, prompt: str = None, max_tokens: int = 50) -> 
     print("=" * 60)
 
     try:
-        from transformers import AutoTokenizer, AutoModelForCausalLM
-
         # Load tokenizer
         print(f"\nLoading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-hf")

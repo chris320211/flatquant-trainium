@@ -16,10 +16,13 @@ Usage:
 import sys
 import os
 import torch
-import transformers
 from pathlib import Path
 
-# Setup paths
+# CRITICAL: Import transformers BEFORE adding FlatQuantBundled to path
+# FlatQuantBundled/deploy/transformers will shadow the real transformers package
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Setup paths - add FlatQuantBundled AFTER transformers is imported
 sys.path.insert(0, '/home/ubuntu/flatquant-trainium/FlatQuantBundled')
 
 import flatquant.utils as fq_utils
@@ -43,7 +46,7 @@ class FlatQuantCalibrator:
     def load_model(self):
         """Load base model from HuggingFace"""
         print(f"Loading model: {self.model_name}")
-        self.model = transformers.AutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
             torch_dtype=torch.float16,
             device_map="auto",
@@ -52,7 +55,7 @@ class FlatQuantCalibrator:
         self.model.eval()
 
         print(f"Loading tokenizer: {self.model_name}")
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+        self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_name,
             use_fast=False,
             token=self.hf_token,

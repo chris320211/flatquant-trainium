@@ -14,7 +14,11 @@ import torch
 from pathlib import Path
 from typing import Dict
 
-# Setup paths
+# CRITICAL: Import transformers BEFORE adding FlatQuantBundled to path
+# FlatQuantBundled/deploy/transformers will shadow the real transformers package
+from transformers import AutoModelForCausalLM
+
+# Setup paths - add FlatQuantBundled AFTER transformers is imported
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, '/home/ubuntu/flatquant-trainium/FlatQuantBundled')
 
@@ -35,7 +39,6 @@ def dequantize_flatquant_model(quantized_path: str, output_path: str) -> bool:
     print("=" * 60)
 
     try:
-        from transformers import AutoModelForCausalLM
         from llama_2_7b_hf_utils import FlatQuantLlamaMLP, FlatQuantLlamaAttention
 
         # Step 1: Load quantized model

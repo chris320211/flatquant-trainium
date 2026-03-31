@@ -17,8 +17,12 @@ import torch
 from pathlib import Path
 from typing import Optional
 
+# CRITICAL: Import transformers BEFORE adding FlatQuantBundled to path
+from transformers import AutoModelForCausalLM
+
 # Setup paths
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, '/home/ubuntu/flatquant-trainium/FlatQuantBundled')
 
 
 def trace_model_for_trainium(
@@ -44,8 +48,6 @@ def trace_model_for_trainium(
     print("=" * 60)
 
     try:
-        from transformers import AutoModelForCausalLM
-
         # Step 1: Load BF16 model
         print(f"\n[1/3] Loading BF16 model from {model_path}")
         model = AutoModelForCausalLM.from_pretrained(
