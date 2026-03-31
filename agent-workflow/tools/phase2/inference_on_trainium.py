@@ -36,7 +36,7 @@ def benchmark_inference(
     Benchmark inference latency on Trainium2 traced model.
 
     Args:
-        model_path: Path to traced model
+        model_path: Path to traced model or HuggingFace model directory
         num_iterations: Number of iterations to measure
         sequence_length: Sequence length for inputs
         batch_size: Batch size for inputs
@@ -50,10 +50,25 @@ def benchmark_inference(
 
     try:
         # Load traced model
-        print(f"\n[1/3] Loading traced model from {model_path}")
-        model = torch.jit.load(model_path)
+        print(f"\n[1/3] Loading model from {model_path}")
+
+        # Check if it's a TorchScript model or HuggingFace model
+        model_path_obj = Path(model_path)
+        if model_path_obj.is_file() and model_path.endswith('.pt'):
+            # TorchScript model
+            model = torch.jit.load(model_path)
+            print(f"✓ TorchScript model loaded successfully")
+        else:
+            # HuggingFace model directory
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                device_map="cpu"
+            )
+            print(f"✓ HuggingFace model loaded successfully")
+
         model.eval()
-        print(f"✓ Model loaded successfully")
+        print(f"✓ Model ready for inference")
 
         # Warmup
         print(f"\n[2/3] Warming up (3 iterations)...")
@@ -133,7 +148,7 @@ def run_inference(model_path: str, prompt: str = None, max_tokens: int = 50) -> 
     Run single inference pass and generate text.
 
     Args:
-        model_path: Path to traced model
+        model_path: Path to traced model or HuggingFace model directory
         prompt: Input prompt text
         max_tokens: Maximum tokens to generate
 
@@ -150,11 +165,26 @@ def run_inference(model_path: str, prompt: str = None, max_tokens: int = 50) -> 
         tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-hf")
         print(f"✓ Tokenizer loaded")
 
-        # Load traced model
-        print(f"Loading traced model from {model_path}")
-        model = torch.jit.load(model_path)
+        # Load model
+        print(f"Loading model from {model_path}")
+
+        # Check if it's a TorchScript model or HuggingFace model
+        model_path_obj = Path(model_path)
+        if model_path_obj.is_file() and model_path.endswith('.pt'):
+            # TorchScript model
+            model = torch.jit.load(model_path)
+            print(f"✓ TorchScript model loaded")
+        else:
+            # HuggingFace model directory
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                device_map="cpu"
+            )
+            print(f"✓ HuggingFace model loaded")
+
         model.eval()
-        print(f"✓ Model loaded")
+        print(f"✓ Model ready for inference")
 
         if prompt is None:
             prompt = "The future of artificial intelligence is"
