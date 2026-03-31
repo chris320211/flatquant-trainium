@@ -29,9 +29,6 @@ dist/
 *.so
 *.dylib
 
-# Agent outputs
-agent-workflow/outputs/
-
 # Jupyter
 .ipynb_checkpoints/
 

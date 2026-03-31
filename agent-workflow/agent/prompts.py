@@ -109,6 +109,20 @@ TRANSFORMERS / modeling_{slug}.py compatibility:
 - Do NOT copy forward() signatures from FlatQuant reference files (deploy_modeling_llama) alone;
   the `installed_forward_signatures` data is authoritative.
 
+PYTHONPATH / PATH SETUP (CRITICAL):
+- In `calibrate_{slug}.py`, SET UP PYTHONPATH DYNAMICALLY using relative paths, NOT hardcoded paths like `/home/ubuntu/...`
+- Use this pattern at the top of the file after imports:
+  ```python
+  from pathlib import Path
+  SCRIPT_DIR = Path(__file__).parent
+  REPO_ROOT = SCRIPT_DIR.parent.parent.parent  # Navigate up to repository root
+  FLATQUANT_PATH = REPO_ROOT / "FlatQuantBundled"
+  sys.path.insert(0, str(SCRIPT_DIR))
+  sys.path.insert(0, str(FLATQUANT_PATH))
+  ```
+- This ensures the script works on ANY machine (local MacBook, EC2, Trainium2) without hardcoded paths
+- DO NOT use `/home/ubuntu/` or any absolute paths — these break on different machines
+
 CRITICAL RULES:
 - All kernel imports MUST use the PyTorch path (deploy.kernels.pytorch.*), never CUDA/Triton
 - Use `torch.float8_e4m3fn` for quantized weights (FP8 for Trainium)

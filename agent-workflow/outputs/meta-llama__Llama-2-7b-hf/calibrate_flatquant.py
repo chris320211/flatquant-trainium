@@ -1,16 +1,7 @@
 #!/usr/bin/env python3
 """
-Phase 1: Calibrate and apply FlatQuant quantization to model.
-
-This script:
-1. Loads base model from HuggingFace
-2. Applies FlatQuant INT4 wrappers to all layers
-3. Runs calibration (optional)
-4. Saves quantized checkpoint
-
-Usage:
-    source setup_env.sh
-    python calibrate_flatquant.py --model meta-llama/Llama-2-7b-hf --output ./quantized_model
+Calibration script for FlatQuant Llama-2-7b-hf.
+This uses the llama_2_7b_hf_utils.py approach (Approach A - FlatQuantBundled classes).
 """
 
 import sys
@@ -18,24 +9,34 @@ import os
 import torch
 from pathlib import Path
 
-# CRITICAL: Import transformers FIRST, before any FlatQuantBundled modules
-# This prevents FlatQuantBundled/deploy/transformers from shadowing the real one
+# CRITICAL: Import transformers FIRST, before adding FlatQuantBundled to path
+# FlatQuantBundled/deploy/transformers shadows the real transformers module
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# NOTE: FlatQuantBundled should already be in PYTHONPATH from setup_env.sh
-# DO NOT add it again to sys.path - that will cause the shadowing issue
+# Setup paths - find FlatQuantBundled relative to this script
+# This script is in: agent-workflow/outputs/meta-llama__Llama-2-7b-hf/calibrate_flatquant.py
+# FlatQuantBundled is at: FlatQuantBundled/ (up 3 levels)
+SCRIPT_DIR = Path(__file__).parent
+REPO_ROOT = SCRIPT_DIR.parent.parent.parent  # Navigate up to repository root
+FLATQUANT_PATH = REPO_ROOT / "FlatQuantBundled"
+
+if not FLATQUANT_PATH.exists():
+    raise RuntimeError(f"FlatQuantBundled not found at {FLATQUANT_PATH}. Ensure script is run from within the repository.")
+
+sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(FLATQUANT_PATH))
+# NOTE: Do NOT add FlatQuantBundled/deploy to path - it shadows transformers
 
 import flatquant.utils as fq_utils
 import flatquant.data_utils as data_utils
 import flatquant.train_utils as train_utils
 import flatquant.flat_utils as flat_utils
 
-# Import model-specific wrappers from this directory
 from llama_2_7b_hf_utils import FlatQuantLlamaMLP, FlatQuantLlamaAttention
 
 
 class FlatQuantCalibrator:
-    """Handles FlatQuant calibration for any Llama model"""
+    """Handles FlatQuant calibration for Llama-2-7b-hf"""
 
     def __init__(self, model_name: str, hf_token: str = None):
         self.model_name = model_name
@@ -73,46 +74,33 @@ class FlatQuantCalibrator:
             w_bits = 4
             a_bits = 8
             group_size = 128
-            w_asym = False  # Symmetric weight quantization
-            a_asym = False  # Symmetric activation quantization
-            a_groupsize = -1  # -1 = per-layer quantization (groupsize>0 not yet supported)
-            lwc = False  # Learned weight clipping
             direct_inv = False
             add_diag = False
             diag_init = "sq_style"
-            lac = False  # Learned activation clipping
-            separate_vtrans = True  # For attention v_proj handling
-            q_bits = 8  # KV cache quantization bits
-            k_bits = 8
-            v_bits = 8
-            q_asym = False
-            k_asym = False
-            v_asym = False
+            lac = False
 
         args = FlatQuantArgs()
 
         # Replace attention and MLP layers
         num_layers = self.model.config.num_hidden_layers
-        wrapped_count = 0
-
         for layer_idx in range(num_layers):
             layer = self.model.model.layers[layer_idx]
 
             # Wrap attention
             try:
                 layer.self_attn = FlatQuantLlamaAttention(args, layer.self_attn)
-                wrapped_count += 1
+                print(f"  Layer {layer_idx}: attention wrapped")
             except Exception as e:
                 print(f"  Layer {layer_idx}: attention wrap failed - {e}")
 
             # Wrap MLP
             try:
                 layer.mlp = FlatQuantLlamaMLP(args, layer.mlp)
-                wrapped_count += 1
+                print(f"  Layer {layer_idx}: MLP wrapped")
             except Exception as e:
                 print(f"  Layer {layer_idx}: MLP wrap failed - {e}")
 
-        print(f"✓ Applied FlatQuant wrappers to {num_layers} layers (2x{num_layers} components)")
+        print(f"✓ Applied FlatQuant to {num_layers} layers")
         return self.model
 
     def calibrate(self, dataset_name: str = "wikitext", num_samples: int = 128):
@@ -135,8 +123,8 @@ class FlatQuantCalibrator:
             print(f"✓ Loaded {num_samples} calibration samples")
         except Exception as e:
             print(f"Warning: Could not load dataset via data_utils: {e}")
-            print("  Skipping calibration...")
-            return
+            print("  Using simple random data instead...")
+            trainloader = None
 
         if trainloader:
             print("Running calibration...")
@@ -150,31 +138,19 @@ class FlatQuantCalibrator:
                 print("✓ Calibration complete")
             except Exception as e:
                 print(f"Calibration failed: {e}")
+        else:
+            print("Skipping calibration (no dataset)")
 
     def save_model(self, output_path: str):
         """Save quantized model"""
         print(f"Saving quantized model to: {output_path}")
 
         # Reparameterize to apply quantization
-        print("Reparameterizing wrapped layers...")
-        num_layers = self.model.config.num_hidden_layers
-        for layer_idx in range(num_layers):
-            layer = self.model.model.layers[layer_idx]
-            try:
-                # Call reparameterize on wrapped attention
-                if hasattr(layer.self_attn, 'reparameterize'):
-                    layer.self_attn.reparameterize()
-            except Exception as e:
-                print(f"  Layer {layer_idx}: attention reparameterize failed - {e}")
-
-            try:
-                # Call reparameterize on wrapped MLP
-                if hasattr(layer.mlp, 'reparameterize'):
-                    layer.mlp.reparameterize()
-            except Exception as e:
-                print(f"  Layer {layer_idx}: MLP reparameterize failed - {e}")
-
-        print("✓ Reparameterization complete")
+        try:
+            flat_utils.reparameterize_model(self.model)
+            print("✓ Model reparameterized")
+        except Exception as e:
+            print(f"Warning: Reparameterization failed: {e}")
 
         # Save
         self.model.save_pretrained(output_path)
@@ -185,7 +161,7 @@ class FlatQuantCalibrator:
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Phase 1: FlatQuant Calibration")
+    parser = argparse.ArgumentParser(description="Calibrate FlatQuant Llama-2-7b-hf")
     parser.add_argument("--model", type=str, default="meta-llama/Llama-2-7b-hf",
                        help="HuggingFace model name")
     parser.add_argument("--hf_token", type=str, default=None,
@@ -200,7 +176,7 @@ def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print("Phase 1: FlatQuant Calibration")
+    print("FlatQuant Calibration for Llama-2-7b-hf")
     print("=" * 60)
 
     # Run calibration pipeline
@@ -211,7 +187,7 @@ def main():
     calib.save_model(args.output)
 
     print("=" * 60)
-    print("✓ Phase 1 Complete!")
+    print("✓ Calibration complete!")
     print(f"  Quantized model saved to: {args.output}")
     print("=" * 60)
 

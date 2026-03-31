@@ -2,7 +2,12 @@
 # Phase 1: Setup Python paths for FlatQuantBundled module
 # Run this before executing any Phase 1 scripts
 
-export PYTHONPATH=/home/ubuntu/flatquant-trainium/FlatQuantBundled:$PYTHONPATH
+# This script is located at: agent-workflow/tools/phase1/setup_env.sh
+# We need to go up 3 levels to reach the repo root
+cd "$(dirname "$0")"
+REPO_ROOT="$(pwd)/../../.."
+
+export PYTHONPATH="${REPO_ROOT}/FlatQuantBundled:$PYTHONPATH"
 
 # CRITICAL: Do NOT verify deploy import here
 # FlatQuantBundled/deploy/transformers/ shadows the real transformers module
@@ -12,7 +17,8 @@ export PYTHONPATH=/home/ubuntu/flatquant-trainium/FlatQuantBundled:$PYTHONPATH
 # 3. deploy - from FlatQuantBundled, but AFTER transformers is loaded
 
 # Verify only flatquant
+echo "PYTHONPATH=$PYTHONPATH"
 python3 -c "import flatquant; print('✓ flatquant imported')" || exit 1
 
-echo "✓ PYTHONPATH configured: /home/ubuntu/flatquant-trainium/FlatQuantBundled"
+echo "✓ PYTHONPATH configured"
 echo "✓ Ready to run calibration scripts"

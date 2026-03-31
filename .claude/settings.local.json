@@ -7,11 +7,13 @@
       "Bash(python:*)",
       "Bash(cat:*)",
       "Bash(git check-ignore:*)",
-      "Bash(git add:*)",
       "Bash(git rev-parse:*)",
       "Bash(xargs ls:*)",
       "Bash(find:*)",
-      "Bash(git commit:*)"
+      "Bash(tree:*)",
+      "Bash(source:*)",
+      "Bash(python3:*)",
+      "Bash(pkill -f \"calibrate_flatquant.py\\|model download\")"
     ],
     "deny": [],
     "ask": []
