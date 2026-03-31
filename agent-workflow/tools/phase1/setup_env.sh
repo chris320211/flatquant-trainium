@@ -10,7 +10,7 @@ SCRIPT_DIR="${SCRIPT_PATH%/*}"
 cd "$SCRIPT_DIR" || exit 1
 REPO_ROOT="$(pwd)/../../.."
 
-export PYTHONPATH="${REPO_ROOT}/FlatQuantBundled:$PYTHONPATH"
+export PYTHONPATH="${REPO_ROOT}/FlatQuantBundled:${SCRIPT_DIR}:$PYTHONPATH"
 
 # CRITICAL: Do NOT verify deploy import here
 # FlatQuantBundled/deploy/transformers/ shadows the real transformers module
