@@ -18,9 +18,6 @@ from typing import Dict
 # This prevents FlatQuantBundled/deploy/transformers from shadowing the real one
 from transformers import AutoModelForCausalLM
 
-# Import dequant functions from FlatQuant
-from flatquant.quant_utils import sym_dequant, asym_dequant
-
 # NOTE: FlatQuantBundled should already be in PYTHONPATH from setup_env.sh
 # DO NOT add it again to sys.path - that will cause the shadowing issue
 
@@ -29,106 +26,44 @@ def dequantize_flatquant_model(quantized_path: str, output_path: str) -> bool:
     """
     Convert FlatQuant INT4 model to BF16 for Trainium tracing.
 
-    The key insight: When we save a quantized model, the weights are stored as INT4 integers.
-    To dequantize, we need to:
-    1. Unpack INT4 values back to FP32 using the scale/zero parameters
-    2. Call reparameterize() to apply transformation matrices
-    3. Convert to BF16 for Trainium2 compatibility
+    Key insight: The saved "quantized" checkpoint is actually the REPARAMETERIZED model
+    with FP16 weights (not INT4 bytes). The reparameterization already happened during
+    Phase 1 save_model(). So we just need to:
+    1. Load the reparameterized FP16 weights
+    2. Convert to BF16 for Trainium2 compatibility
+    3. Save
 
     Args:
-        quantized_path: Path to quantized model checkpoint (from Phase 1)
+        quantized_path: Path to reparameterized model checkpoint (from Phase 1)
         output_path: Path to save BF16 model
 
     Returns:
         True if successful, False otherwise
     """
     print("=" * 60)
-    print("FlatQuant INT4 → BF16 Dequantization for Trainium2")
+    print("FlatQuant Reparameterized → BF16 Conversion for Trainium2")
     print("=" * 60)
 
     try:
-        from llama_2_7b_hf_utils import FlatQuantLlamaMLP, FlatQuantLlamaAttention
-
-        # Step 1: Load quantized model
-        print(f"\n[1/3] Loading quantized model from {quantized_path}")
-        model_quantized = AutoModelForCausalLM.from_pretrained(
+        # Step 1: Load reparameterized model (stored as FP16)
+        print(f"\n[1/2] Loading reparameterized model from {quantized_path}")
+        model_fp16 = AutoModelForCausalLM.from_pretrained(
             quantized_path,
-            torch_dtype=torch.float32,  # Load as FP32 for dequantization
+            torch_dtype=torch.float16,
             device_map="auto"
         )
-        print(f"✓ Quantized model loaded: {type(model_quantized).__name__}")
+        print(f"✓ Model loaded: {type(model_fp16).__name__}")
 
-        # Step 2: Dequantize INT4 weights manually using scale/zero parameters
-        print("\n[2/3] Dequantizing INT4 weights to FP32...")
-        num_layers = model_quantized.config.num_hidden_layers
+        # Verify weights are reasonable (not garbage quantized values)
+        sample_weight = model_fp16.model.layers[0].self_attn.q_proj.weight
+        print(f"  Sample weight range: [{sample_weight.min():.4f}, {sample_weight.max():.4f}]")
 
-        for layer_idx in range(num_layers):
-            layer = model_quantized.model.layers[layer_idx]
-
-            # Dequantize attention layer (q, k, v, o projections)
-            for proj_name in ['q_proj', 'k_proj', 'v_proj', 'o_proj']:
-                proj = getattr(layer.self_attn, proj_name)
-                if hasattr(proj, 'weight_quantizer') and hasattr(proj.weight_quantizer, 'scale'):
-                    # Get the INT4 weight and scale/zero from quantizer
-                    w_int4 = proj.linear.weight.data
-                    scale = proj.weight_quantizer.scale
-                    zero = proj.weight_quantizer.zero
-
-                    # Dequantize: Convert INT4 → FP32
-                    if proj.weight_quantizer.sym:
-                        w_fp32 = sym_dequant(w_int4, scale)
-                    else:
-                        w_fp32 = asym_dequant(w_int4, scale, zero)
-
-                    # Update weight in place
-                    proj.linear.weight.data = w_fp32
-
-            # Dequantize MLP layer (up, gate, down projections)
-            for proj_name in ['up_proj', 'gate_proj', 'down_proj']:
-                proj = getattr(layer.mlp, proj_name)
-                if hasattr(proj, 'weight_quantizer') and hasattr(proj.weight_quantizer, 'scale'):
-                    # Get the INT4 weight and scale/zero from quantizer
-                    w_int4 = proj.linear.weight.data
-                    scale = proj.weight_quantizer.scale
-                    zero = proj.weight_quantizer.zero
-
-                    # Dequantize: Convert INT4 → FP32
-                    if proj.weight_quantizer.sym:
-                        w_fp32 = sym_dequant(w_int4, scale)
-                    else:
-                        w_fp32 = asym_dequant(w_int4, scale, zero)
-
-                    # Update weight in place
-                    proj.linear.weight.data = w_fp32
-
-            if layer_idx % 5 == 0:
-                print(f"  ✓ Dequantized layer {layer_idx}")
-
-        print(f"✓ Dequantized all {num_layers} layers")
-
-        # Step 3: Apply reparameterization to merge transformation matrices
-        print("\n[3/4] Applying reparameterization...")
-        for layer_idx in range(num_layers):
-            layer = model_quantized.model.layers[layer_idx]
-
-            # Reparameterize attention
-            if hasattr(layer.self_attn, 'reparameterize'):
-                layer.self_attn.reparameterize()
-
-            # Reparameterize MLP
-            if hasattr(layer.mlp, 'reparameterize'):
-                layer.mlp.reparameterize()
-
-            if layer_idx % 5 == 0:
-                print(f"  ✓ Reparameterized layer {layer_idx}")
-
-        # Step 4: Convert to BF16 and save
-        print("\n[4/4] Converting to BF16 for Trainium2...")
-        model_quantized.to(torch.bfloat16)
-        model_bf16 = model_quantized
+        # Step 2: Convert to BF16 for Trainium2
+        print(f"\n[2/2] Converting to BF16 for Trainium2...")
+        model_bf16 = model_fp16.to(torch.bfloat16)
         print(f"✓ Model converted to BF16")
 
-        # Step 5: Save BF16 model
+        # Step 3: Save BF16 model
         print(f"\nSaving BF16 model to {output_path}")
         Path(output_path).mkdir(parents=True, exist_ok=True)
         model_bf16.save_pretrained(output_path)
@@ -144,16 +79,15 @@ def dequantize_flatquant_model(quantized_path: str, output_path: str) -> bool:
         print(f"✓ Verification passed")
 
         print("\n" + "=" * 60)
-        print("✓ Dequantization Complete!")
-        print(f"  Input: {quantized_path} (INT4 quantized)")
+        print("✓ Conversion Complete!")
+        print(f"  Input: {quantized_path} (FP16 reparameterized)")
         print(f"  Output: {output_path} (BF16 standard)")
-        print(f"  Process: INT4 → FP32 (dequantize) → reparameterize → BF16")
         print("=" * 60)
 
         return True
 
     except Exception as e:
-        print(f"\n✗ Dequantization failed: {e}")
+        print(f"\n✗ Conversion failed: {e}")
         import traceback
         traceback.print_exc()
         return False
