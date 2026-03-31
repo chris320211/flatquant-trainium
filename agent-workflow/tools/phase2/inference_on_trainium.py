@@ -54,11 +54,11 @@ def benchmark_inference(
 
         # Check if it's a TorchScript model or HuggingFace model
         model_path_obj = Path(model_path)
-        if model_path_obj.is_file() and model_path.endswith('.pt'):
-            # TorchScript model
+        if model_path_obj.is_file() and str(model_path).endswith('.pt'):
+            # TorchScript model (.pt file)
             model = torch.jit.load(model_path)
             print(f"✓ TorchScript model loaded successfully")
-        else:
+        elif model_path_obj.is_dir():
             # HuggingFace model directory
             model = AutoModelForCausalLM.from_pretrained(
                 model_path,
@@ -66,6 +66,8 @@ def benchmark_inference(
                 device_map="cpu"
             )
             print(f"✓ HuggingFace model loaded successfully")
+        else:
+            raise ValueError(f"Model path {model_path} is neither a .pt file nor a directory")
 
         model.eval()
         print(f"✓ Model ready for inference")
@@ -170,11 +172,11 @@ def run_inference(model_path: str, prompt: str = None, max_tokens: int = 50) -> 
 
         # Check if it's a TorchScript model or HuggingFace model
         model_path_obj = Path(model_path)
-        if model_path_obj.is_file() and model_path.endswith('.pt'):
-            # TorchScript model
+        if model_path_obj.is_file() and str(model_path).endswith('.pt'):
+            # TorchScript model (.pt file)
             model = torch.jit.load(model_path)
             print(f"✓ TorchScript model loaded")
-        else:
+        elif model_path_obj.is_dir():
             # HuggingFace model directory
             model = AutoModelForCausalLM.from_pretrained(
                 model_path,
@@ -182,6 +184,8 @@ def run_inference(model_path: str, prompt: str = None, max_tokens: int = 50) -> 
                 device_map="cpu"
             )
             print(f"✓ HuggingFace model loaded")
+        else:
+            raise ValueError(f"Model path {model_path} is neither a .pt file nor a directory")
 
         model.eval()
         print(f"✓ Model ready for inference")
