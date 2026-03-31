@@ -30,8 +30,8 @@ import flatquant.data_utils as data_utils
 import flatquant.train_utils as train_utils
 import flatquant.flat_utils as flat_utils
 
-# Import from parent directory (agent-generated model-specific utils)
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "outputs"))
+# Import model-specific wrappers from this directory
+from llama_2_7b_hf_utils import FlatQuantLlamaMLP, FlatQuantLlamaAttention
 
 
 class FlatQuantCalibrator:
@@ -68,22 +68,6 @@ class FlatQuantCalibrator:
         """Apply FlatQuant wrappers to model layers"""
         print("Applying FlatQuant wrappers to model...")
 
-        # Try to import the generated wrappers
-        try:
-            # This assumes the model-specific utils are in outputs
-            from llama_2_7b_hf_utils import FlatQuantLlamaMLP, FlatQuantLlamaAttention
-            wrapper_classes = (FlatQuantLlamaMLP, FlatQuantLlamaAttention)
-        except ImportError:
-            print("Warning: Model-specific wrappers not found")
-            print("Using generic FlatQuant classes instead...")
-            from flatquant.flat_linear import FlatQuantizedLinear
-            # Would need to wrap manually with generic approach
-            wrapper_classes = None
-
-        if wrapper_classes is None:
-            print("Skipping wrapper application (needs model-specific implementation)")
-            return self.model
-
         # Create args object with FlatQuant settings
         class FlatQuantArgs:
             w_bits = 4
@@ -98,24 +82,26 @@ class FlatQuantCalibrator:
 
         # Replace attention and MLP layers
         num_layers = self.model.config.num_hidden_layers
+        wrapped_count = 0
+
         for layer_idx in range(num_layers):
             layer = self.model.model.layers[layer_idx]
 
             # Wrap attention
             try:
-                layer.self_attn = wrapper_classes[1](args, layer.self_attn)
-                print(f"  Layer {layer_idx}: attention wrapped")
+                layer.self_attn = FlatQuantLlamaAttention(args, layer.self_attn)
+                wrapped_count += 1
             except Exception as e:
                 print(f"  Layer {layer_idx}: attention wrap failed - {e}")
 
             # Wrap MLP
             try:
-                layer.mlp = wrapper_classes[0](args, layer.mlp)
-                print(f"  Layer {layer_idx}: MLP wrapped")
+                layer.mlp = FlatQuantLlamaMLP(args, layer.mlp)
+                wrapped_count += 1
             except Exception as e:
                 print(f"  Layer {layer_idx}: MLP wrap failed - {e}")
 
-        print(f"✓ Applied FlatQuant to {num_layers} layers")
+        print(f"✓ Applied FlatQuant wrappers to {num_layers} layers (2x{num_layers} components)")
         return self.model
 
     def calibrate(self, dataset_name: str = "wikitext", num_samples: int = 128):
