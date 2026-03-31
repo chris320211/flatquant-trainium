@@ -215,6 +215,7 @@ class TrainiumUnifiedPipeline:
             trainloader = data_utils.get_loaders(
                 args=None,
                 name=dataset_name,
+                tokenizer=self.tokenizer,
                 nsamples=num_samples,
                 seqlen=self.model.seqlen,
                 eval_mode=False,
@@ -352,6 +353,7 @@ class TrainiumUnifiedPipeline:
 
         try:
             import torch_neuronx
+            import torch_xla
 
             # Create example input
             print(f"\nCreating example input for tracing...")
@@ -371,7 +373,8 @@ class TrainiumUnifiedPipeline:
             compiler_workdir = "./compiler_workdir/"
             Path(compiler_workdir).mkdir(parents=True, exist_ok=True)
 
-            traced_model = torch_neuronx.neuron.trace(
+            # Use torch_xla.trace which is the actual API in torch_neuronx
+            traced_model = torch_xla.trace(
                 self.model,
                 example_input,
                 compiler_workdir=compiler_workdir,

@@ -113,7 +113,11 @@ class FlatQuantLlamaAttention(LlamaAttention):
     def __init__(self, args, module: LlamaAttention):
         super().__init__(module.config, module.layer_idx)
         self.args = args
-        
+
+        # Copy attributes from original module
+        self.num_heads = module.num_heads if hasattr(module, 'num_heads') else self.config.num_attention_heads
+        self.num_key_value_heads = module.num_key_value_heads if hasattr(module, 'num_key_value_heads') else getattr(self.config, 'num_key_value_heads', self.config.num_attention_heads)
+
         self.q_proj = FlatQuantizedLinear(args, module.q_proj)
         self.k_proj = FlatQuantizedLinear(args, module.k_proj)
         self.v_proj = FlatQuantizedLinear(args, module.v_proj)
