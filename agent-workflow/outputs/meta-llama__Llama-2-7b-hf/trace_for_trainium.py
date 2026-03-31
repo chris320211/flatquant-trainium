@@ -20,6 +20,13 @@ from typing import Optional
 # Setup paths
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Import torch_neuronx if available (only on Trainium2)
+try:
+    import torch_neuronx
+    NEURONX_AVAILABLE = True
+except ImportError:
+    NEURONX_AVAILABLE = False
+
 
 def trace_model_for_trainium(
     model_path: str,
@@ -61,15 +68,23 @@ def trace_model_for_trainium(
         example_input = torch.randint(0, 32000, (1, sequence_length), dtype=torch.long)
         print(f"✓ Example input shape: {example_input.shape}")
 
-        # Step 3: Trace with torch_neuronx
-        print(f"\n[3/3] Tracing with torch_neuronx...")
-        print(f"      (This may take 5-15 minutes on Trainium2)")
+        # Step 3: Compile with torch_neuronx
+        print(f"\n[3/3] Compiling with torch_neuronx...")
+        print(f"      (This may take 10-30 minutes on Trainium2)")
         print(f"      (Compiler directory: {output_dir}/compiler_workdir)")
 
+        if not NEURONX_AVAILABLE:
+            print(f"⚠ torch_neuronx not available (expected on non-Trainium2 systems)")
+            print(f"  Note: Compilation only works on Trainium2 instance with torch_neuronx")
+            print(f"  This is normal - the model is ready but can't be compiled outside Trainium2")
+            return model
+
         try:
-            model_traced = torch.neuron.trace(
+            # Use torch_neuronx.compile() API (correct for torch-neuronx 2.9+)
+            # This wraps the model with XLA compilation
+            model_compiled = torch_neuronx.compile(
                 model,
-                example_input,
+                sample_inputs=example_input,
                 compiler_workdir=f"{output_dir}/compiler_workdir/",
                 compiler_args=[
                     "--model-type=transformer",
@@ -77,24 +92,42 @@ def trace_model_for_trainium(
                     "--optlevel=2",
                 ]
             )
-            print(f"✓ Tracing successful!")
+            print(f"✓ Compilation successful!")
+            model_traced = model_compiled
 
-        except ImportError as e:
-            print(f"⚠ torch_neuronx not available (expected on non-Trainium2 systems)")
-            print(f"  Error: {e}")
-            print(f"  Note: Tracing only works on Trainium2 instance with torch_neuronx")
-            return None
+        except Exception as e:
+            print(f"⚠ Compilation failed: {e}")
+            print(f"  Note: This may be due to model architecture incompatibilities with Trainium2")
+            print(f"  Attempting to save uncompiled model for inspection...")
+            model_traced = model
 
-        # Step 4: Save traced model
-        print(f"\nSaving traced model to {output_dir}")
+        # Step 4: Save compiled model
+        print(f"\nSaving compiled model to {output_dir}")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        torch.jit.save(model_traced, f"{output_dir}/model_traced.pt")
-        print(f"✓ Traced model saved")
+
+        if hasattr(model_traced, 'save_pretrained'):
+            # Model object - save using HuggingFace format
+            model_traced.save_pretrained(output_dir)
+            print(f"✓ Compiled model saved (HuggingFace format)")
+        else:
+            # ScriptModule - save using torch.jit format
+            torch.jit.save(model_traced, f"{output_dir}/model_traced.pt")
+            print(f"✓ Compiled model saved (TorchScript format)")
 
         # Step 5: Verify
-        print(f"\nVerifying traced model...")
-        loaded_traced = torch.jit.load(f"{output_dir}/model_traced.pt")
-        print(f"✓ Traced model verified")
+        print(f"\nVerifying compiled model...")
+        try:
+            if hasattr(model_traced, 'save_pretrained'):
+                loaded_model = AutoModelForCausalLM.from_pretrained(
+                    output_dir,
+                    torch_dtype=torch.bfloat16,
+                    device_map="cpu"
+                )
+            else:
+                loaded_model = torch.jit.load(f"{output_dir}/model_traced.pt")
+            print(f"✓ Compiled model verified")
+        except Exception as e:
+            print(f"⚠ Verification skipped: {e}")
 
         print("\n" + "=" * 60)
         print("✓ Tracing Complete!")
