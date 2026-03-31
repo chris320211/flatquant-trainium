@@ -4,9 +4,8 @@
 # This script is located at: agent-workflow/tools/setup_env.sh
 # We need to go up 3 levels to reach the repo root
 
-# Get the directory where this script is located
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+cd "$(dirname "$0")"
+REPO_ROOT="$(pwd)/../../.."
 
 export PYTHONPATH="${REPO_ROOT}/FlatQuantBundled:$PYTHONPATH"
 
