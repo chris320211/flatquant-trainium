@@ -96,9 +96,9 @@ class FlatQuantLlamaMLP(LlamaMLP):
         assert hasattr(self, "up_smax") and hasattr(self, "down_smax")
         upw_smax = torch.cat([self.up_proj.linear.weight, self.gate_proj.linear.weight], dim=0).abs().max(dim=0)[0]
         downw_smax = self.down_proj.linear.weight.abs().max(dim=0)[0]
-        if self.up_gate_trans is not None:
+        if self.up_gate_trans is not None and hasattr(self.up_gate_trans, 'diag_scale'):
             self.up_gate_trans.diag_scale.data = get_init_scale(upw_smax, self.up_smax, alpha)
-        if self.down_trans is not None:
+        if self.down_trans is not None and hasattr(self.down_trans, 'diag_scale'):
             self.down_trans.diag_scale.data = get_init_scale(downw_smax, self.down_smax, alpha)
         del self.up_smax, self.down_smax
         self.diag_init = None
@@ -203,8 +203,8 @@ class FlatQuantLlamaAttention(LlamaAttention):
             k = self.k_cache_quantizer(k).to(q)
         return q, k
 
-    def forward(self, hidden_states, attention_mask, position_ids,
-                    past_key_value, output_attentions, use_cache, **kwargs):
+    def forward(self, hidden_states, position_embeddings=None, attention_mask=None,
+                    past_key_values=None, use_cache=False, **kwargs):
         bsz, q_len, _ = hidden_states.size()
         if self._ori_mode:
             query_states, key_states, value_states = self._ori_forward_after_ln(hidden_states)
@@ -215,25 +215,19 @@ class FlatQuantLlamaAttention(LlamaAttention):
         key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
-        kv_seq_len = key_states.shape[-2]
-        if past_key_value is not None:
-            if self.layer_idx is None:
-                raise ValueError(
-                    f"The cache structure has changed since version v4.36. If you are using {self.__class__.__name__} "
-                    "for auto-regressive decoding with k/v caching, please make sure to initialize the attention class "
-                    "with a layer index."
-                )
-            kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
-        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+        # transformers 5.x: cos/sin come from position_embeddings passed by the decoder layer
+        cos, sin = position_embeddings
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
         # ---- here do the quantization ----
         if not self._ori_mode:
             query_states, key_states = self.quant_kcache(query_states, key_states)
             value_states = self.quant_vcache(value_states)
 
-        if past_key_value is not None:
-            cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
-            key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+        if past_key_values is not None:
+            key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx)
+
+        kv_seq_len = key_states.shape[-2]
 
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups) # bnsh
@@ -246,10 +240,6 @@ class FlatQuantLlamaAttention(LlamaAttention):
             )
 
         if attention_mask is not None:
-            if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
-                raise ValueError(
-                    f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
-                )
             attn_weights = attn_weights + attention_mask
 
         # upcast attention to fp32
@@ -264,11 +254,11 @@ class FlatQuantLlamaAttention(LlamaAttention):
             )
 
         attn_output = attn_output.transpose(1, 2).contiguous()
-        attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
+        attn_output = attn_output.reshape(bsz, q_len, self.config.hidden_size)
         if self._ori_mode:
             attn_output = self.o_proj._ori_forward(attn_output)
         else:
-            # new foward: 
+            # new foward:
             if self.o_trans is None and self.vcache_trans is not None:
                 # attn_output = self.vcache_trans(value_states)
                 init_shape = attn_output.shape
@@ -285,9 +275,10 @@ class FlatQuantLlamaAttention(LlamaAttention):
                     attn_output = self.o_proj(attn_output, qa_trans=[attn_o_og_it, attn_v_og_it])
                 else:
                     attn_output = self.o_proj(attn_output)
+        output_attentions = kwargs.get('output_attentions', False)
         if not output_attentions:
             attn_weights = None
-        return attn_output, attn_weights, past_key_value
+        return attn_output, attn_weights
 
     def reparameterize(self):
         if self.ln_trans is not None:
@@ -313,7 +304,7 @@ class FlatQuantLlamaAttention(LlamaAttention):
     def init_diag_scale(self, alpha=0.5):
         assert hasattr(self, "ln_smax")
         qkvw_smax = torch.cat([self.q_proj.linear.weight, self.k_proj.linear.weight, self.v_proj.linear.weight], dim=0).abs().max(dim=0)[0]
-        if self.ln_trans is not None:
+        if self.ln_trans is not None and hasattr(self.ln_trans, 'diag_scale'):
             self.ln_trans.diag_scale.data = get_init_scale(qkvw_smax, self.ln_smax, alpha)
         del self.ln_smax
         self.diag_init = None

@@ -135,7 +135,7 @@ def get_pile(nsamples, seqlen, tokenizer):
 def get_loaders(
     args, name, tokenizer, nsamples=128, seqlen=2048, eval_mode=False
 ):
-    if 'wikitext2' in name:
+    if 'wikitext' in name:
         dataset = get_wikitext2(nsamples, seqlen, tokenizer, eval_mode)
     elif 'ptb' in name:
         dataset = get_ptb_new(nsamples, seqlen, tokenizer, eval_mode)
