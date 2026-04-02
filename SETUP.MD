@@ -9,7 +9,6 @@ sudo apt-get install -y python3 python3-pip
 
 # Create virtual environment
 python3 -m venv trainium_env
-source trainium_env/bin/activate
 
 # Upgrade pip
 pip install --upgrade pip setuptools wheel
