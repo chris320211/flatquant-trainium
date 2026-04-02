@@ -35,3 +35,12 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Large model weights (store on S3)
+*.safetensors
+
+# Trainium runtime artifacts
+trainium_env/
+agent-workflow/tools/compiler_workdir/
+agent-workflow/tools/log-neuron-cc.txt
+agent-workflow/tools/global_metric_store.json

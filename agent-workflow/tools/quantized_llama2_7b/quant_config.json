@@ -1,0 +1,15 @@
+{
+  "w_bits": 4,
+  "a_bits": 8,
+  "group_size": 128,
+  "w_asym": false,
+  "a_asym": false,
+  "a_groupsize": -1,
+  "lwc": false,
+  "q_bits": 8,
+  "k_bits": 8,
+  "v_bits": 8,
+  "model_type": "llama",
+  "strategy": "option2_explicit_transforms",
+  "device_location": "TRAINIUM2"
+}

@@ -13,7 +13,9 @@
       "Bash(tree:*)",
       "Bash(source:*)",
       "Bash(python3:*)",
-      "Bash(pkill -f \"calibrate_flatquant.py\\|model download\")"
+      "Bash(pkill -f \"calibrate_flatquant.py\\|model download\")",
+      "Read(//home/ubuntu/flatquant-trainium/**)",
+      "Bash(du -h agent-workflow/tools/quantized_llama2_7b/*)"
     ],
     "deny": [],
     "ask": []
