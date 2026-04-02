@@ -16,6 +16,13 @@ fi
 
 export PYTHONPATH="${REPO_ROOT}/FlatQuantBundled:${SCRIPT_DIR}:$PYTHONPATH"
 
+# Load HF token from repo root .env if present (never echoed)
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+  set -a
+  source "${REPO_ROOT}/.env" > /dev/null 2>&1
+  set +a
+fi
+
 # CRITICAL: Do NOT verify deploy import here
 # FlatQuantBundled/deploy/transformers/ shadows the real transformers module
 # The Python scripts will import things in the correct order:

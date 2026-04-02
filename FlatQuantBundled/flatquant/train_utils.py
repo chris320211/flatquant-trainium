@@ -71,6 +71,15 @@ def cali_flat_quant(args, model, dataloader, dev, logger):
     else:
         attention_mask_batch = None
     
+    # Compute position_embeddings (cos, sin) for transformers 5.x API.
+    # In transformers 5.x, rotary embeddings are computed at the model level and
+    # passed as position_embeddings to each decoder layer — so we must do the same
+    # when calling layers directly during calibration.
+    position_embeddings = None
+    if hasattr(model.model, "rotary_emb") and position_ids is not None:
+        with torch.no_grad():
+            position_embeddings = model.model.rotary_emb(inps[:1], position_ids=position_ids)
+
     # move embedding layer and first layer to cpu
     layers[0] = layers[0].module
     layers[0] = layers[0].cpu()
@@ -104,7 +113,7 @@ def cali_flat_quant(args, model, dataloader, dev, logger):
         layer.mlp._ori_mode = True
         with torch.no_grad():
             for j in range(args.nsamples):
-                fp_outs[j] = layer(fp_inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+                fp_outs[j] = layer(fp_inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids, position_embeddings=position_embeddings)[0].squeeze(0)
         layer.self_attn._ori_mode = False
         layer.mlp._ori_mode = False
         if args.diag_init == "sq_style":
@@ -146,7 +155,7 @@ def cali_flat_quant(args, model, dataloader, dev, logger):
             with traincast():
                 for j in range(args.nsamples // args.cali_bsz):
                     index = j * args.cali_bsz
-                    quant_out = layer(fp_inps[index:index+args.cali_bsz,], attention_mask=attention_mask_batch, position_ids=position_ids)[0]
+                    quant_out = layer(fp_inps[index:index+args.cali_bsz,], attention_mask=attention_mask_batch, position_ids=position_ids, position_embeddings=position_embeddings)[0].squeeze(0)
                     loss = loss_func(fp_outs[index:index+args.cali_bsz,], quant_out)
                     mse += loss.detach().cpu()
                     loss = loss / loss.clone().detach()
