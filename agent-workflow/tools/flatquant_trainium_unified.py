@@ -85,12 +85,17 @@ class TrainiumUnifiedPipeline:
         print(f"  ✓ PyTorch: {torch.__version__}")
         print(f"  ✓ Device: {torch.device('cpu')}")
 
-        # Check Trainium-specific imports
-        try:
-            import torch_neuronx
+        # Check Trainium-specific imports (importability only — defer actual import
+        # to trace_for_trainium2 so _XLAC is not loaded during calibration/save,
+        # avoiding a known _XLAC destructor segfault on process exit)
+        # Check for torch_neuronx by looking for the package directory directly —
+        # avoids importing _XLAC (which segfaults on shutdown with large models).
+        import importlib.util
+        spec = importlib.util.find_spec("torch_neuronx")
+        if spec is not None:
             print(f"  ✓ torch_neuronx available (Trainium SDK installed)")
             self.has_trainium = True
-        except ImportError:
+        else:
             print(f"  ⚠ torch_neuronx NOT available (this is CPU, not Trainium2)")
             print(f"    But continuing anyway - tracing will be skipped")
             self.has_trainium = False
@@ -116,7 +121,7 @@ class TrainiumUnifiedPipeline:
         print(f"  ✓ Training device: {self.device}")
         print(f"  ✓ Trainium2 environment verified\n")
 
-    def load_and_wrap_model(self):
+    def load_and_wrap_model(self, num_samples=128, cali_epochs=5, cali_bsz_val=1):
         """
         [ON TRAINIUM2] Load base model and apply FlatQuant wrappers.
         Everything stays on Trainium2.
@@ -150,6 +155,7 @@ class TrainiumUnifiedPipeline:
         print(f"\nApplying FlatQuant wrappers (INT4 weights, FP8 activations)...")
 
         class FlatQuantArgs:
+            # Quantization settings
             w_bits = 4
             a_bits = 8
             group_size = 128
@@ -168,8 +174,19 @@ class TrainiumUnifiedPipeline:
             q_asym = False
             k_asym = False
             v_asym = False
+            # Calibration settings (used by cali_flat_quant)
+            nsamples = num_samples
+            cali_bsz = cali_bsz_val
+            deactive_amp = False
+            diag_alpha = 0.5
+            cali_trans = True
+            flat_lr = 5e-3
+            epochs = cali_epochs
+            warmup = True
+            exp_dir = str(self.output_path)
 
         args = FlatQuantArgs()
+        Path(args.exp_dir).mkdir(parents=True, exist_ok=True)
         num_layers = self.model.config.num_hidden_layers
 
         for layer_idx in range(num_layers):
@@ -230,9 +247,9 @@ class TrainiumUnifiedPipeline:
         print(f"\nRunning calibration (learning transform matrices)...")
         try:
             train_utils.cali_flat_quant(
-                args=None,
+                args=args,
                 model=self.model,
-                trainloader=trainloader,
+                dataloader=trainloader,
                 dev=self.device,
                 logger=self._get_logger(),
             )
@@ -302,10 +319,18 @@ class TrainiumUnifiedPipeline:
         print(f"  ✓ Evaluation mode set")
 
         # Save checkpoint
+        import gc, sys
         print(f"\nSaving model checkpoint...")
+        sys.stdout.flush()
         Path(output_path).mkdir(parents=True, exist_ok=True)
+        print(f"  Calling save_pretrained...")
+        sys.stdout.flush()
         self.model.save_pretrained(output_path)
+        sys.stdout.flush()
+        print(f"  Model weights saved, saving tokenizer...")
+        sys.stdout.flush()
         self.tokenizer.save_pretrained(output_path)
+        gc.collect()
         print(f"  ✓ Model saved")
 
         # Save quant config
@@ -344,7 +369,16 @@ class TrainiumUnifiedPipeline:
         if not self.has_trainium:
             print(f"\n⚠ torch_neuronx not available (not on Trainium2 hardware)")
             print(f"  Skipping trace compilation")
-            return self.model
+            return getattr(self, 'model', None)
+
+        # Free the large model from RAM before importing torch_neuronx/XLA runtime.
+        # The Neuron runtime init (_XLAC npid_attach) segfaults when the 7B model
+        # is still resident — it can't allocate its runtime structures.
+        import gc
+        print(f"\nFreeing model from RAM before Neuron runtime init...")
+        del self.model
+        gc.collect()
+        print(f"  ✓ RAM freed")
 
         print(f"\nTracing configuration:")
         print(f"  Sequence length: {sequence_length}")
@@ -353,7 +387,14 @@ class TrainiumUnifiedPipeline:
 
         try:
             import torch_neuronx
-            import torch_xla
+            # Reload the saved quantized model for tracing
+            from transformers import AutoModelForCausalLM as _AutoModel
+            print(f"\nReloading saved quantized model for tracing...")
+            trace_model = _AutoModel.from_pretrained(
+                str(self.output_path), dtype=torch.float16, device_map="cpu"
+            )
+            trace_model.eval()
+            print(f"  ✓ Model reloaded")
 
             # Create example input
             print(f"\nCreating example input for tracing...")
@@ -362,28 +403,31 @@ class TrainiumUnifiedPipeline:
             )
             print(f"  ✓ Example input: {example_input.shape}")
 
-            # Prepare model
-            print(f"\nPreparing model for tracing...")
-            self.model.to("cpu")
-            self.model.eval()
-            print(f"  ✓ Model in eval mode")
-
             # Trace with torch_neuronx
             print(f"\nTracing with torch_neuronx (neuron-cc compiler)...")
             compiler_workdir = "./compiler_workdir/"
             Path(compiler_workdir).mkdir(parents=True, exist_ok=True)
 
-            # Use torch_xla.trace which is the actual API in torch_neuronx
-            traced_model = torch_xla.trace(
-                self.model,
+            # Wrap model to return only logits tensor — DynamicCache in output
+            # cannot be traced by torch_neuronx (only tensors/tuples allowed)
+            class LogitsOnlyWrapper(torch.nn.Module):
+                def __init__(self, m):
+                    super().__init__()
+                    self.m = m
+                def forward(self, input_ids):
+                    return self.m(input_ids, use_cache=False).logits
+
+            traced_model = torch_neuronx.trace(
+                LogitsOnlyWrapper(trace_model),
                 example_input,
                 compiler_workdir=compiler_workdir,
                 compiler_args=[
                     "--model-type=transformer",
-                    "--num-neuroncores=1",
+                    "--num-neuroncores=4",
                 ]
             )
 
+            self.traced_seq_len = sequence_length
             print(f"  ✓ Tracing complete")
             print(f"  ✓ Model compiled for Trainium2 NeuroCores")
             print(f"\n[STEP 4 COMPLETE] Trainium2 traced model ready\n")
@@ -394,8 +438,11 @@ class TrainiumUnifiedPipeline:
             print(f"\n✗ Tracing failed: {e}")
             import traceback
             traceback.print_exc()
-            print(f"\nReturning untraced model...")
-            return self.model
+            print(f"\nReturning untraced model (reloaded from checkpoint)...")
+            from transformers import AutoModelForCausalLM as _AutoModel
+            fallback = _AutoModel.from_pretrained(str(self.output_path), dtype=torch.float16, device_map="cpu")
+            fallback.eval()
+            return fallback
 
     def run_inference_on_trainium2(
         self,
@@ -426,27 +473,28 @@ class TrainiumUnifiedPipeline:
             with torch.no_grad():
                 output_ids = input_ids.clone()
 
+                traced_len = getattr(self, 'traced_seq_len', None)
+
                 for step in range(max_tokens):
-                    # Forward pass on Trainium2
-                    # Pass with proper argument names to match transformer model signature
-                    outputs = traced_model(
-                        input_ids=output_ids,
-                        attention_mask=None,
-                        past_key_value=None,
-                        output_attentions=False,
-                        use_cache=False,
-                    )
-
-                    # Extract logits
-                    if hasattr(outputs, 'logits'):
-                        logits = outputs.logits
-                    elif isinstance(outputs, tuple):
-                        logits = outputs[0]
+                    # Neuron-compiled model requires fixed input shape matching
+                    # the shape used during torch_neuronx.trace().
+                    # Pad short inputs; use a sliding window when output grows past traced_len.
+                    if traced_len is not None:
+                        cur_len = output_ids.shape[1]
+                        if cur_len < traced_len:
+                            padded = torch.zeros((1, traced_len), dtype=torch.long)
+                            padded[0, :cur_len] = output_ids[0]
+                            model_input = padded
+                            last_pos = cur_len - 1
+                        else:
+                            model_input = output_ids[:, -traced_len:]
+                            last_pos = traced_len - 1
+                        logits = traced_model(model_input)
+                        next_token = logits[:, last_pos, :].argmax(dim=-1, keepdim=True)
                     else:
-                        logits = outputs
+                        logits = traced_model(output_ids)
+                        next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
 
-                    # Get next token
-                    next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
                     output_ids = torch.cat([output_ids, next_token], dim=1)
 
                     if step % 10 == 0:
@@ -469,13 +517,17 @@ class TrainiumUnifiedPipeline:
             traceback.print_exc()
             return None
 
-    def benchmark_on_trainium2(self, traced_model, sequence_length: int = 128, num_iterations: int = 5):
+    def benchmark_on_trainium2(self, traced_model, sequence_length: int = None, num_iterations: int = 5):
         """
         [ON TRAINIUM2] Benchmark inference latency.
         Measures performance on actual Trainium2 hardware/CPU.
         """
         print("[STEP 6/6] Benchmarking on Trainium2")
         print("=" * 80)
+
+        # Use the sequence length the model was actually compiled for
+        if sequence_length is None:
+            sequence_length = getattr(self, 'traced_seq_len', 128)
 
         print(f"\nBenchmark configuration:")
         print(f"  Sequence length: {sequence_length}")
@@ -488,13 +540,7 @@ class TrainiumUnifiedPipeline:
             for i in range(3):
                 with torch.no_grad():
                     input_ids = torch.randint(0, 32000, (1, sequence_length), dtype=torch.long)
-                    _ = traced_model(
-                        input_ids=input_ids,
-                        attention_mask=None,
-                        past_key_value=None,
-                        output_attentions=False,
-                        use_cache=False,
-                    )
+                    _ = traced_model(input_ids)
                 print(f"  Warmup {i+1}/3 complete")
 
             # Benchmark
@@ -506,13 +552,7 @@ class TrainiumUnifiedPipeline:
                     input_ids = torch.randint(0, 32000, (1, sequence_length), dtype=torch.long)
 
                     start = time.perf_counter()
-                    output = traced_model(
-                        input_ids=input_ids,
-                        attention_mask=None,
-                        past_key_value=None,
-                        output_attentions=False,
-                        use_cache=False,
-                    )
+                    output = traced_model(input_ids)
                     elapsed = time.perf_counter() - start
 
                     times.append(elapsed)
@@ -618,6 +658,28 @@ Examples:
         help="Number of tokens to generate for inference"
     )
     parser.add_argument(
+        "--cali_epochs",
+        type=int,
+        default=5,
+        help="Calibration epochs per layer (default 5; use 1 for fast testing)"
+    )
+    parser.add_argument(
+        "--cali_bsz",
+        type=int,
+        default=1,
+        help="Calibration batch size (default 1)"
+    )
+    parser.add_argument(
+        "--skip_save",
+        action="store_true",
+        help="Skip saving (reuse existing checkpoint in --output dir)"
+    )
+    parser.add_argument(
+        "--skip_calibration",
+        action="store_true",
+        help="Skip calibration (reuse existing flat_parameters.pth)"
+    )
+    parser.add_argument(
         "--benchmark",
         action="store_true",
         help="Run latency benchmarking on Trainium2"
@@ -632,41 +694,62 @@ Examples:
     args = parser.parse_args()
 
     # Run unified pipeline
-    pipeline = TrainiumUnifiedPipeline(
-        args.model,
-        args.output,
-        args.hf_token,
-    )
+    import os as _os
 
-    # Step 1: Load and wrap
-    model, tokenizer, quant_args = pipeline.load_and_wrap_model()
+    try:
+        pipeline = TrainiumUnifiedPipeline(
+            args.model,
+            args.output,
+            args.hf_token,
+        )
 
-    # Step 2: Calibrate
-    pipeline.calibrate_on_trainium2(quant_args, args.dataset, args.num_samples)
+        # Step 1: Load and wrap
+        model, tokenizer, quant_args = pipeline.load_and_wrap_model(
+            num_samples=args.num_samples,
+            cali_epochs=args.cali_epochs,
+            cali_bsz_val=args.cali_bsz,
+        )
 
-    # Step 3: Save
-    pipeline.save_quantized_on_trainium2(quant_args)
+        # Step 2: Calibrate
+        if not args.skip_calibration:
+            pipeline.calibrate_on_trainium2(quant_args, args.dataset, args.num_samples)
+        else:
+            print("[STEP 2/6] Skipping calibration (--skip_calibration)\n")
 
-    # Step 4: Trace
-    traced_model = pipeline.trace_for_trainium2(args.sequence_length)
+        # Step 3: Save
+        if not args.skip_save:
+            pipeline.save_quantized_on_trainium2(quant_args)
+        else:
+            print("[STEP 3/6] Skipping save (--skip_save, reusing existing checkpoint)\n")
 
-    # Step 5: Inference
-    generated = pipeline.run_inference_on_trainium2(
-        traced_model,
-        prompt=args.prompt,
-        max_tokens=args.num_tokens,
-    )
+        # Step 4: Trace
+        traced_model = pipeline.trace_for_trainium2(args.sequence_length)
 
-    # Step 6: Optional benchmarking
-    if args.benchmark:
-        stats = pipeline.benchmark_on_trainium2(traced_model, args.sequence_length)
+        # Step 5: Inference
+        generated = pipeline.run_inference_on_trainium2(
+            traced_model,
+            prompt=args.prompt,
+            max_tokens=args.num_tokens,
+        )
 
-    print("\n" + "=" * 80)
-    print("✓ UNIFIED FLATQUANT + TRAINIUM2 PIPELINE COMPLETE")
-    print("=" * 80)
-    print(f"Quantized model location: {args.output} (on Trainium2)")
-    print(f"Status: ALL EXECUTION ON TRAINIUM2 INSTANCE")
-    print("=" * 80 + "\n")
+        # Step 6: Optional benchmarking
+        if args.benchmark:
+            stats = pipeline.benchmark_on_trainium2(traced_model, args.sequence_length)
+
+        print("\n" + "=" * 80)
+        print("✓ UNIFIED FLATQUANT + TRAINIUM2 PIPELINE COMPLETE")
+        print("=" * 80)
+        print(f"Quantized model location: {args.output} (on Trainium2)")
+        print(f"Status: ALL EXECUTION ON TRAINIUM2 INSTANCE")
+        print("=" * 80 + "\n")
+
+    finally:
+        # Always bypass _XLAC destructor segfault on process exit
+        # (known torch_neuronx/_XLAC issue when large tensors are in memory at shutdown)
+        import sys
+        sys.stdout.flush()
+        sys.stderr.flush()
+        _os._exit(0)
 
 
 if __name__ == "__main__":
