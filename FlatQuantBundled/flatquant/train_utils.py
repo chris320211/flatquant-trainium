@@ -158,13 +158,26 @@ def cali_flat_quant(args, model, dataloader, dev, logger):
                     quant_out = layer(fp_inps[index:index+args.cali_bsz,], attention_mask=attention_mask_batch, position_ids=position_ids, position_embeddings=position_embeddings)[0].squeeze(0)
                     loss = loss_func(fp_outs[index:index+args.cali_bsz,], quant_out)
                     mse += loss.detach().cpu()
-                    loss = loss / loss.clone().detach()
+                    loss = loss / torch.clamp(loss.clone().detach(), min=1e-8)
                     optimizer.zero_grad()
                     loss.backward()
+                    all_params = [p for group in optimizer.param_groups for p in group['params']]
+                    for p in all_params:
+                        if p.grad is not None:
+                            p.grad.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
+                    torch.nn.utils.clip_grad_norm_(all_params, max_norm=1.0)
                     optimizer.step()
                     scheduler.step()
             cur_lr = optimizer.state_dict()['param_groups'][0]['lr']
             logger.info(f"layer {i} lwc lac iter {epoch}, lr {cur_lr:.8f}  time {time.time() - start_tick:.6f}s, mse: {mse:.8f}" )
+            has_nan = False
+            for name, param in layer.named_parameters():
+                if param.requires_grad and torch.isnan(param).any():
+                    logger.info(f"  NaN detected in {name} at epoch {epoch}")
+                    has_nan = True
+            if has_nan:
+                logger.info(f"  ABORTING layer {i} calibration due to NaN parameters")
+                break
 
         fp_inps, fp_outs = fp_outs, fp_inps
         layers[i] = layer.to("cpu")

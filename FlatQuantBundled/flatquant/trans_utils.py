@@ -29,7 +29,7 @@ class SVDSingleTransMatrix(nn.Module):
             orthog_u, orthog_v = self.linear_u.weight, self.linear_v.weight
             linear_diag = self.linear_diag
             if inv_t:
-                linear_diag = 1 / linear_diag
+                linear_diag = 1 / (torch.clamp(linear_diag.abs(), min=1e-6) * linear_diag.sign())
             return orthog_u @ torch.diag(linear_diag) @ orthog_v.t()
         else:
             if inv_t:
@@ -38,8 +38,17 @@ class SVDSingleTransMatrix(nn.Module):
 
     def to_eval_mode(self):
         if not self._eval_mode:
-            matrix = self.linear_u.weight @ torch.diag(self.linear_diag) @ self.linear_v.weight.t()
-            matrix_inv_t = self.linear_u.weight @ torch.diag(1 / self.linear_diag) @ self.linear_v.weight.t()
+            u = self.linear_u.weight
+            v = self.linear_v.weight
+            diag = self.linear_diag
+            size = diag.shape[0]
+            if torch.isnan(u).any() or torch.isnan(v).any():
+                # Cayley parametrization hit a singularity; fall back to identity
+                u = torch.eye(size, dtype=diag.dtype, device=diag.device)
+                v = torch.eye(size, dtype=diag.dtype, device=diag.device)
+            matrix = u @ torch.diag(diag) @ v.t()
+            diag_safe = torch.clamp(diag.abs(), min=1e-6) * diag.sign()
+            matrix_inv_t = u @ torch.diag(1 / diag_safe) @ v.t()
             self.matrix = nn.Parameter(matrix, requires_grad=False)
             self.matrix_inv_t = nn.Parameter(matrix_inv_t, requires_grad=False)
             self._eval_mode = True
@@ -93,7 +102,8 @@ class SVDDecomposeTransMatrix(nn.Module):
             matrix_v_left, matrix_v_right = self.linear_v_left.weight, self.linear_v_right.weight
             linear_diag_left, linear_diag_right = self.linear_diag_left,  self.linear_diag_right
             if inv_t:
-                linear_diag_left, linear_diag_right = 1 / linear_diag_left, 1 / linear_diag_right
+                linear_diag_left = 1 / (torch.clamp(linear_diag_left.abs(), min=1e-6) * linear_diag_left.sign())
+                linear_diag_right = 1 / (torch.clamp(linear_diag_right.abs(), min=1e-6) * linear_diag_right.sign())
         else:
             matrix_left, matrix_right = self.matrix_left, self.matrix_right
             if inv_t:
@@ -104,10 +114,26 @@ class SVDDecomposeTransMatrix(nn.Module):
 
     def to_eval_mode(self):
         if not self._eval_mode:
-            matrix_left = self.linear_u_left.weight @ torch.diag(self.linear_diag_left) @ self.linear_v_left.weight.t()
-            matrix_right = self.linear_u_right.weight @ torch.diag(self.linear_diag_right) @ self.linear_v_right.weight.t()
-            matrix_left_inv = self.linear_u_left.weight @ torch.diag(1 / self.linear_diag_left) @ self.linear_v_left.weight.t()
-            matrix_right_inv = self.linear_u_right.weight @ torch.diag(1 / self.linear_diag_right) @ self.linear_v_right.weight.t()
+            u_left = self.linear_u_left.weight
+            v_left = self.linear_v_left.weight
+            u_right = self.linear_u_right.weight
+            v_right = self.linear_v_right.weight
+            diag_left = self.linear_diag_left
+            diag_right = self.linear_diag_right
+            left_size = diag_left.shape[0]
+            right_size = diag_right.shape[0]
+            if torch.isnan(u_left).any() or torch.isnan(v_left).any():
+                u_left = torch.eye(left_size, dtype=diag_left.dtype, device=diag_left.device)
+                v_left = torch.eye(left_size, dtype=diag_left.dtype, device=diag_left.device)
+            if torch.isnan(u_right).any() or torch.isnan(v_right).any():
+                u_right = torch.eye(right_size, dtype=diag_right.dtype, device=diag_right.device)
+                v_right = torch.eye(right_size, dtype=diag_right.dtype, device=diag_right.device)
+            matrix_left = u_left @ torch.diag(diag_left) @ v_left.t()
+            matrix_right = u_right @ torch.diag(diag_right) @ v_right.t()
+            diag_left_safe = torch.clamp(diag_left.abs(), min=1e-6) * diag_left.sign()
+            diag_right_safe = torch.clamp(diag_right.abs(), min=1e-6) * diag_right.sign()
+            matrix_left_inv = u_left @ torch.diag(1 / diag_left_safe) @ v_left.t()
+            matrix_right_inv = u_right @ torch.diag(1 / diag_right_safe) @ v_right.t()
             self.matrix_left = nn.Parameter(matrix_left, requires_grad=False)
             self.matrix_right = nn.Parameter(matrix_right, requires_grad=False)
             self.matrix_left_inv = nn.Parameter(matrix_left_inv, requires_grad=False)
