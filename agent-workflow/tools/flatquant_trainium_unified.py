@@ -556,7 +556,7 @@ class TrainiumUnifiedPipeline:
                 # W_v is [hidden, hidden]; transpose to [hidden, hidden], reshape to [n_heads*hidden, head_dim],
                 # matmul with [head_dim, head_dim], reshape back, transpose.
                 W_v = (W_v.T.reshape(-1, head_dim) @ vc_matrix).reshape(W_v.T.shape).T
-                hf_sd[f"model.layers.{i}.self_attn.v_proj.weight"] = W_v.to(torch.float16)
+                hf_sd[f"model.layers.{i}.self_attn.v_proj.weight"] = W_v.to(torch.float16).contiguous()
                 del W_v, vc_matrix
 
                 # o_proj: Approach B — NxDI has no runtime o_trans.T step, so only vc_inv_t per-head.
